@@ -1,0 +1,5 @@
+Saquon Barkley – props
+======================
+
+rush_yds: best_line  @  | hit_rate  | margin  | conf 0.3
+rec_yds: best_line  @  | hit_rate  | margin  | conf 0.3

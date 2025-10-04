@@ -1,0 +1,244 @@
+{
+  "patrick_mahomes": [
+    {
+      "player_name": "Patrick Mahomes",
+      "metric": "pass_yds",
+      "best_line": "",
+      "best_book": "",
+      "hit_rate": "",
+      "avg_margin": "",
+      "confidence": "0.3",
+      "avg_value": "50.0"
+    },
+    {
+      "player_name": "Patrick Mahomes",
+      "metric": "pass_tds",
+      "best_line": "",
+      "best_book": "",
+      "hit_rate": "",
+      "avg_margin": "",
+      "confidence": "0.3",
+      "avg_value": "4.0"
+    }
+  ],
+  "josh_allen": [
+    {
+      "player_name": "Josh Allen",
+      "metric": "pass_yds",
+      "best_line": "",
+      "best_book": "",
+      "hit_rate": "",
+      "avg_margin": "",
+      "confidence": "0.3",
+      "avg_value": "50.0"
+    },
+    {
+      "player_name": "Josh Allen",
+      "metric": "pass_tds",
+      "best_line": "",
+      "best_book": "",
+      "hit_rate": "",
+      "avg_margin": "",
+      "confidence": "0.3",
+      "avg_value": "4.0"
+    }
+  ],
+  "lamar_jackson": [
+    {
+      "player_name": "Lamar Jackson",
+      "metric": "pass_yds",
+      "best_line": "",
+      "best_book": "",
+      "hit_rate": "",
+      "avg_margin": "",
+      "confidence": "0.3",
+      "avg_value": "50.0"
+    },
+    {
+      "player_name": "Lamar Jackson",
+      "metric": "pass_tds",
+      "best_line": "",
+      "best_book": "",
+      "hit_rate": "",
+      "avg_margin": "",
+      "confidence": "0.3",
+      "avg_value": "4.0"
+    }
+  ],
+  "christian_mccaffrey": [
+    {
+      "player_name": "Christian McCaffrey",
+      "metric": "rush_yds",
+      "best_line": "",
+      "best_book": "",
+      "hit_rate": "",
+      "avg_margin": "",
+      "confidence": "0.3",
+      "avg_value": "50.0"
+    },
+    {
+      "player_name": "Christian McCaffrey",
+      "metric": "rec_yds",
+      "best_line": "",
+      "best_book": "",
+      "hit_rate": "",
+      "avg_margin": "",
+      "confidence": "0.3",
+      "avg_value": "50.0"
+    }
+  ],
+  "bijan_robinson": [
+    {
+      "player_name": "Bijan Robinson",
+      "metric": "rush_yds",
+      "best_line": "",
+      "best_book": "",
+      "hit_rate": "",
+      "avg_margin": "",
+      "confidence": "0.3",
+      "avg_value": "50.0"
+    },
+    {
+      "player_name": "Bijan Robinson",
+      "metric": "rec_yds",
+      "best_line": "",
+      "best_book": "",
+      "hit_rate": "",
+      "avg_margin": "",
+      "confidence": "0.3",
+      "avg_value": "50.0"
+    }
+  ],
+  "saquon_barkley": [
+    {
+      "player_name": "Saquon Barkley",
+      "metric": "rush_yds",
+      "best_line": "",
+      "best_book": "",
+      "hit_rate": "",
+      "avg_margin": "",
+      "confidence": "0.3",
+      "avg_value": "50.0"
+    },
+    {
+      "player_name": "Saquon Barkley",
+      "metric": "rec_yds",
+      "best_line": "",
+      "best_book": "",
+      "hit_rate": "",
+      "avg_margin": "",
+      "confidence": "0.3",
+      "avg_value": "50.0"
+    }
+  ],
+  "tyreek_hill": [
+    {
+      "player_name": "Tyreek Hill",
+      "metric": "rec_yds",
+      "best_line": "",
+      "best_book": "",
+      "hit_rate": "",
+      "avg_margin": "",
+      "confidence": "0.3",
+      "avg_value": "50.0"
+    },
+    {
+      "player_name": "Tyreek Hill",
+      "metric": "receptions",
+      "best_line": "",
+      "best_book": "",
+      "hit_rate": "",
+      "avg_margin": "",
+      "confidence": "0.3",
+      "avg_value": "4.0"
+    }
+  ],
+  "justin_jefferson": [
+    {
+      "player_name": "Justin Jefferson",
+      "metric": "rec_yds",
+      "best_line": "",
+      "best_book": "",
+      "hit_rate": "",
+      "avg_margin": "",
+      "confidence": "0.3",
+      "avg_value": "50.0"
+    },
+    {
+      "player_name": "Justin Jefferson",
+      "metric": "receptions",
+      "best_line": "",
+      "best_book": "",
+      "hit_rate": "",
+      "avg_margin": "",
+      "confidence": "0.3",
+      "avg_value": "4.0"
+    }
+  ],
+  "jamarr_chase": [
+    {
+      "player_name": "Ja'Marr Chase",
+      "metric": "rec_yds",
+      "best_line": "",
+      "best_book": "",
+      "hit_rate": "",
+      "avg_margin": "",
+      "confidence": "0.3",
+      "avg_value": "50.0"
+    },
+    {
+      "player_name": "Ja'Marr Chase",
+      "metric": "receptions",
+      "best_line": "",
+      "best_book": "",
+      "hit_rate": "",
+      "avg_margin": "",
+      "confidence": "0.3",
+      "avg_value": "4.0"
+    }
+  ],
+  "travis_kelce": [
+    {
+      "player_name": "Travis Kelce",
+      "metric": "rec_yds",
+      "best_line": "",
+      "best_book": "",
+      "hit_rate": "",
+      "avg_margin": "",
+      "confidence": "0.3",
+      "avg_value": "50.0"
+    },
+    {
+      "player_name": "Travis Kelce",
+      "metric": "receptions",
+      "best_line": "",
+      "best_book": "",
+      "hit_rate": "",
+      "avg_margin": "",
+      "confidence": "0.3",
+      "avg_value": "4.0"
+    }
+  ],
+  "sam_laporta": [
+    {
+      "player_name": "Sam LaPorta",
+      "metric": "rec_yds",
+      "best_line": "",
+      "best_book": "",
+      "hit_rate": "",
+      "avg_margin": "",
+      "confidence": "0.3",
+      "avg_value": "50.0"
+    },
+    {
+      "player_name": "Sam LaPorta",
+      "metric": "receptions",
+      "best_line": "",
+      "best_book": "",
+      "hit_rate": "",
+      "avg_margin": "",
+      "confidence": "0.3",
+      "avg_value": "4.0"
+    }
+  ]
+}

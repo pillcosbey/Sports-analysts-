@@ -1,0 +1,23 @@
+player_name,metric,avg_value,best_line,best_book,hit_rate,avg_margin,confidence
+Patrick Mahomes,pass_yds,50.0,,,,,0.3
+Patrick Mahomes,pass_tds,4.0,,,,,0.3
+Josh Allen,pass_yds,50.0,,,,,0.3
+Josh Allen,pass_tds,4.0,,,,,0.3
+Lamar Jackson,pass_yds,50.0,,,,,0.3
+Lamar Jackson,pass_tds,4.0,,,,,0.3
+Christian McCaffrey,rush_yds,50.0,,,,,0.3
+Christian McCaffrey,rec_yds,50.0,,,,,0.3
+Bijan Robinson,rush_yds,50.0,,,,,0.3
+Bijan Robinson,rec_yds,50.0,,,,,0.3
+Saquon Barkley,rush_yds,50.0,,,,,0.3
+Saquon Barkley,rec_yds,50.0,,,,,0.3
+Tyreek Hill,rec_yds,50.0,,,,,0.3
+Tyreek Hill,receptions,4.0,,,,,0.3
+Justin Jefferson,rec_yds,50.0,,,,,0.3
+Justin Jefferson,receptions,4.0,,,,,0.3
+Ja'Marr Chase,rec_yds,50.0,,,,,0.3
+Ja'Marr Chase,receptions,4.0,,,,,0.3
+Travis Kelce,rec_yds,50.0,,,,,0.3
+Travis Kelce,receptions,4.0,,,,,0.3
+Sam LaPorta,rec_yds,50.0,,,,,0.3
+Sam LaPorta,receptions,4.0,,,,,0.3

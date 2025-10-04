@@ -1,0 +1,5 @@
+Patrick Mahomes – props
+=======================
+
+pass_yds: best_line  @  | hit_rate  | margin  | conf 0.3
+pass_tds: best_line  @  | hit_rate  | margin  | conf 0.3

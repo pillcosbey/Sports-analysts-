@@ -1,0 +1,5 @@
+Ja'Marr Chase – props
+=====================
+
+rec_yds: best_line  @  | hit_rate  | margin  | conf 0.3
+receptions: best_line  @  | hit_rate  | margin  | conf 0.3
