@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+.env
+app/.env
+app/picks.db
+.pytest_cache/
+.DS_Store
