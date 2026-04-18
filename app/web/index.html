@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Prop Research — NBA / MLB</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <header>
+    <h1>Prop Research</h1>
+    <nav id="main-nav">
+      <button data-sport="nba" data-phase="pregame" class="active">NBA Pregame</button>
+      <button data-sport="nba" data-phase="live">NBA Live</button>
+      <button data-sport="mlb" data-phase="pregame">MLB Pregame</button>
+      <button data-sport="mlb" data-phase="live">MLB Live</button>
+      <button data-tab="scores">Scores</button>
+      <button data-tab="parlay">Parlay</button>
+      <button data-tab="backtest">Backtest</button>
+    </nav>
+  </header>
+
+  <!-- Search bar -->
+  <div id="search-bar">
+    <input type="text" id="search-input" placeholder="Search player (e.g. LeBron, Judge)..." />
+    <select id="search-sport">
+      <option value="nba">NBA</option>
+      <option value="mlb">MLB</option>
+    </select>
+    <div id="search-results"></div>
+  </div>
+
+  <!-- Filter controls -->
+  <div id="filters">
+    <label>Min edge: <input type="number" id="filter-edge" value="0" step="1" min="0" max="30" />%</label>
+    <label>Show:
+      <select id="filter-show">
+        <option value="all">All props</option>
+        <option value="plays">Plays only</option>
+      </select>
+    </label>
+  </div>
+
+  <main id="board"></main>
+
+  <!-- Parlay builder panel (hidden by default) -->
+  <div id="parlay-panel" class="hidden">
+    <h2>Parlay Builder</h2>
+    <p class="meta">Click "Add to Parlay" on any card, then price it here.</p>
+    <div id="parlay-legs"></div>
+    <button id="price-parlay" class="btn">Price Parlay</button>
+    <div id="parlay-result"></div>
+  </div>
+
+  <!-- Backtest panel -->
+  <div id="backtest-panel" class="hidden">
+    <h2>Backtest</h2>
+    <div class="backtest-controls">
+      <label>Games: <input type="number" id="bt-games" value="200" min="50" max="2000" /></label>
+      <label>Min edge: <input type="number" id="bt-edge" value="3" step="0.5" min="0" />%</label>
+      <button id="run-backtest" class="btn">Run Backtest</button>
+    </div>
+    <div id="backtest-result"></div>
+  </div>
+
+  <!-- Live scores panel -->
+  <div id="scores-panel" class="hidden">
+    <h2>Live Scores</h2>
+    <div id="scores-content"></div>
+  </div>
+
+  <footer>
+    <small>Research only. 21+. Bet responsibly.</small>
+  </footer>
+  <script src="/static/app.js"></script>
+</body>
+</html>

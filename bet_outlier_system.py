@@ -5,6 +5,7 @@ Advanced Player Props Research with Defense Analysis and Parlay Builder
 """
 
 import asyncio
+import os
 import aiohttp
 from datetime import datetime
 from typing import List, Dict
@@ -14,7 +15,9 @@ class BetOutlierSystem:
         self.config = {
             'sportsdataio': {
                 'base_url': 'https://api.sportsdata.io/v3/nfl',
-                'key': 'e6a17abcb3d449089ddc5dcf1f0390d9'
+                # NEVER hardcode API keys. Rotate the old one in the provider
+                # dashboard; it was exposed in git history.
+                'key': os.environ.get('SPORTSDATAIO_KEY', '')
             }
         }
         
