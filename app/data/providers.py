@@ -173,6 +173,44 @@ def get_odds_provider() -> OddsProvider:
     return OddsAPIClient(api_key=key, regions=regions, bookmakers=books, cache_ttl_seconds=ttl)
 
 
-def get_stats_provider() -> StatsProvider:
-    """Return MockStats for now. Swap when real stats APIs are added."""
-    return MockStats()
+def get_stats_provider(sport: str | None = None) -> StatsProvider:
+    """Return the best available stats provider.
+
+    Uses the comprehensive NBAStatsProvider / MLBStatsProvider by default,
+    which cover 80+ NBA players and 60+ MLB players. Falls back to MockStats
+    only if the new providers aren't available.
+    """
+    if sport == "nba":
+        from app.data.nba_stats import NBAStatsProvider
+        return NBAStatsProvider()
+    if sport == "mlb":
+        from app.data.mlb_stats import MLBStatsProvider
+        return MLBStatsProvider()
+    # Multi-sport: return a dispatcher
+    return _MultiStatsProvider()
+
+
+class _MultiStatsProvider:
+    """Routes to the right sport-specific provider."""
+
+    def __init__(self):
+        from app.data.nba_stats import NBAStatsProvider
+        from app.data.mlb_stats import MLBStatsProvider
+        self._nba = NBAStatsProvider()
+        self._mlb = MLBStatsProvider()
+
+    def _pick(self, sport: str):
+        if sport == "nba":
+            return self._nba
+        if sport == "mlb":
+            return self._mlb
+        raise KeyError(f"Unknown sport: {sport}")
+
+    def player_context(self, sport: str, player: str, stat: str) -> dict:
+        return self._pick(sport).player_context(sport, player, stat)
+
+    def live_game_state(self, sport: str, game_id: str, player: str) -> dict | None:
+        return self._pick(sport).live_game_state(sport, game_id, player)
+
+    def final_box(self, sport: str, game_id: str) -> dict:
+        return self._pick(sport).final_box(sport, game_id)
