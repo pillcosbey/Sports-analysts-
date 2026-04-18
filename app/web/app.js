@@ -41,4 +41,19 @@ buttons.forEach(b => b.addEventListener("click", () => {
   load(b.dataset.sport, b.dataset.phase);
 }));
 
+// Show data source badge
+async function loadStatus() {
+  try {
+    const r = await fetch("/api/status");
+    const s = await r.json();
+    const badge = document.createElement("span");
+    badge.className = "status-badge";
+    badge.textContent = s.odds_provider === "live"
+      ? "LIVE ODDS" : "MOCK DATA";
+    badge.style.color = s.odds_provider === "live"
+      ? "var(--good)" : "var(--muted)";
+    document.querySelector("header h1").appendChild(badge);
+  } catch (_) {}
+}
+loadStatus();
 load("nba", "pregame");

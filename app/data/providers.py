@@ -3,12 +3,18 @@
 Replace the Mock* implementations with real API clients as you add keys.
 The rest of the system depends ONLY on the abstract interfaces, so
 swapping providers is a one-file change.
+
+Use ``get_odds_provider()`` to auto-select real or mock based on env.
 """
 
 from __future__ import annotations
 
+import logging
+import os
 from dataclasses import dataclass
 from typing import Protocol
+
+log = logging.getLogger(__name__)
 
 
 @dataclass
@@ -145,3 +151,28 @@ class MockStats:
             "Luka Doncic": {"points": 34, "assists": 9, "rebounds": 7, "pra": 50},
             "Gerrit Cole": {"strikeouts": 8, "outs_recorded": 18},
         }
+
+
+# ----------------------- Provider factories --------------------------------
+
+def get_odds_provider() -> OddsProvider:
+    """Return a real OddsAPIClient if ODDS_API_KEY is set, else MockOdds."""
+    key = os.environ.get("ODDS_API_KEY", "").strip()
+    if not key:
+        log.info("ODDS_API_KEY not set — using MockOdds")
+        return MockOdds()
+    from app.data.odds_api import OddsAPIClient
+    regions = os.environ.get("ODDS_API_REGIONS", "us")
+    books = [
+        b.strip()
+        for b in os.environ.get("ODDS_API_BOOKS", "draftkings,fanduel").split(",")
+        if b.strip()
+    ]
+    ttl = int(os.environ.get("ODDS_CACHE_TTL", "120"))
+    log.info("Using OddsAPIClient (regions=%s, books=%s, cache=%ds)", regions, books, ttl)
+    return OddsAPIClient(api_key=key, regions=regions, bookmakers=books, cache_ttl_seconds=ttl)
+
+
+def get_stats_provider() -> StatsProvider:
+    """Return MockStats for now. Swap when real stats APIs are added."""
+    return MockStats()

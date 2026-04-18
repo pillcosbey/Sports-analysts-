@@ -8,6 +8,7 @@ or:
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from fastapi import FastAPI, Query
@@ -39,6 +40,16 @@ def board(
 @app.get("/api/health")
 def health():
     return {"ok": True}
+
+
+@app.get("/api/status")
+def status():
+    """Show which providers are active so the frontend can display a badge."""
+    return {
+        "odds_provider": "live" if os.environ.get("ODDS_API_KEY", "").strip() else "mock",
+        "stats_provider": "mock",
+        "ai_enabled": bool(os.environ.get("ANTHROPIC_API_KEY", "").strip()),
+    }
 
 
 if __name__ == "__main__":

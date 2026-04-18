@@ -24,7 +24,8 @@ header {
   flex-wrap: wrap;
   gap: 12px;
 }
-header h1 { margin: 0; font-size: 1.3rem; letter-spacing: 0.3px; }
+header h1 { margin: 0; font-size: 1.3rem; letter-spacing: 0.3px; display: flex; align-items: center; gap: 10px; }
+.status-badge { font-size: 0.65rem; padding: 2px 8px; border: 1px solid currentColor; border-radius: 4px; }
 nav { display: flex; gap: 8px; flex-wrap: wrap; }
 nav button {
   background: var(--card);

@@ -14,7 +14,7 @@ from app.core.math_utils import (
     edge_and_kelly, sportsbook_margin, devig_two_way,
 )
 from app.core.simulator import simulate_prop
-from app.data.providers import MockOdds, MockStats
+from app.data.providers import get_odds_provider, get_stats_provider
 from app.sports.nba.projection import PlayerContext, project_pregame
 from app.sports.nba.live import LiveGameState, project_live
 from app.sports.mlb.projection import (
@@ -45,8 +45,8 @@ def build_board(sport: str, phase: str = "pregame") -> list[dict[str, Any]]:
 
     `phase` is 'pregame' or 'live'.
     """
-    odds_provider = MockOdds()
-    stats_provider = MockStats()
+    odds_provider = get_odds_provider()
+    stats_provider = get_stats_provider()
 
     trials = _env_int("SIM_TRIALS", 1000)
     kelly_cap = _env_float("KELLY_FRACTION", 0.25)
