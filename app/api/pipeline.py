@@ -6,6 +6,7 @@ This is what the web routes call. It takes a sport and returns a list of
 
 from __future__ import annotations
 
+import logging
 import os
 from datetime import datetime
 from typing import Any
@@ -14,7 +15,9 @@ from app.core.math_utils import (
     edge_and_kelly, sportsbook_margin, devig_two_way,
 )
 from app.core.simulator import simulate_prop
-from app.data.providers import get_odds_provider, get_stats_provider
+from app.data.providers import MockOdds, get_odds_provider, get_stats_provider
+
+log = logging.getLogger(__name__)
 from app.sports.nba.projection import PlayerContext, project_pregame
 from app.sports.nba.live import LiveGameState, project_live
 from app.sports.mlb.projection import (
@@ -54,7 +57,12 @@ def build_board(sport: str, phase: str = "pregame") -> list[dict[str, Any]]:
 
     cards: list[dict[str, Any]] = []
 
-    for quote in odds_provider.player_prop_odds(sport):
+    quotes = odds_provider.player_prop_odds(sport)
+    if not quotes and not isinstance(odds_provider, MockOdds):
+        log.warning("Live odds returned 0 quotes for %s — falling back to mock", sport)
+        quotes = MockOdds().player_prop_odds(sport)
+
+    for quote in quotes:
         try:
             ctx_raw = stats_provider.player_context(sport, quote.player, quote.stat)
         except KeyError:
