@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: prop-research
+    runtime: python
+    buildCommand: pip install -r app/requirements.txt
+    startCommand: python -m app.api.main
+    envVars:
+      - key: ODDS_API_KEY
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: SIM_TRIALS
+        value: 1000
+      - key: KELLY_FRACTION
+        value: 0.25
+      - key: MIN_EDGE_PCT
+        value: 3.0
