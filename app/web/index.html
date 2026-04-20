@@ -5,75 +5,138 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  <meta name="theme-color" content="#0e1013" />
-  <title>Prop Research — NBA / MLB</title>
+  <meta name="theme-color" content="#0a0b0f" />
+  <title>PropEdge — Sports Betting Research</title>
   <link rel="stylesheet" href="/static/styles.css" />
 </head>
 <body>
+
+  <!-- Top bar -->
   <header>
-    <h1>Prop Research</h1>
-    <nav id="main-nav">
-      <button data-sport="nba" data-phase="pregame" class="active">NBA Pregame</button>
-      <button data-sport="nba" data-phase="live">NBA Live</button>
-      <button data-sport="mlb" data-phase="pregame">MLB Pregame</button>
-      <button data-sport="mlb" data-phase="live">MLB Live</button>
-      <button data-tab="scores">Scores</button>
-      <button data-tab="parlay">Parlay</button>
-      <button data-tab="backtest">Backtest</button>
-    </nav>
+    <div class="header-left">
+      <div class="logo">
+        <span class="logo-icon">P</span>
+        <span class="logo-text">PropEdge</span>
+      </div>
+      <div id="status-pill"></div>
+    </div>
+    <div class="header-right">
+      <div id="search-wrap">
+        <svg class="search-icon" viewBox="0 0 24 24" width="16" height="16"><circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2"/><line x1="16.5" y1="16.5" x2="21" y2="21" stroke="currentColor" stroke-width="2"/></svg>
+        <input type="text" id="search-input" placeholder="Search players..." />
+        <select id="search-sport"><option value="nba">NBA</option><option value="mlb">MLB</option></select>
+        <div id="search-results"></div>
+      </div>
+    </div>
   </header>
 
-  <!-- Search bar -->
-  <div id="search-bar">
-    <input type="text" id="search-input" placeholder="Search player (e.g. LeBron, Judge)..." />
-    <select id="search-sport">
-      <option value="nba">NBA</option>
-      <option value="mlb">MLB</option>
-    </select>
-    <div id="search-results"></div>
+  <!-- Navigation tabs -->
+  <nav id="main-nav">
+    <button data-sport="nba" data-phase="pregame" class="active">
+      <span class="nav-icon">&#127936;</span><span class="nav-label">NBA</span>
+    </button>
+    <button data-sport="nba" data-phase="live">
+      <span class="nav-icon live-dot"></span><span class="nav-label">NBA Live</span>
+    </button>
+    <button data-sport="mlb" data-phase="pregame">
+      <span class="nav-icon">&#9918;</span><span class="nav-label">MLB</span>
+    </button>
+    <button data-sport="mlb" data-phase="live">
+      <span class="nav-icon live-dot"></span><span class="nav-label">MLB Live</span>
+    </button>
+    <button data-tab="scores">
+      <span class="nav-icon">&#128200;</span><span class="nav-label">Scores</span>
+    </button>
+    <button data-tab="parlay">
+      <span class="nav-icon">&#128176;</span><span class="nav-label">Parlay</span>
+    </button>
+    <button data-tab="backtest">
+      <span class="nav-icon">&#128202;</span><span class="nav-label">Backtest</span>
+    </button>
+  </nav>
+
+  <!-- Toolbar / filters -->
+  <div id="toolbar">
+    <div class="toolbar-left">
+      <span id="board-title">NBA Pregame Props</span>
+      <span id="card-count" class="pill"></span>
+    </div>
+    <div class="toolbar-right" id="filters">
+      <div class="filter-group">
+        <label>Min Edge</label>
+        <input type="number" id="filter-edge" value="0" step="1" min="0" max="30" />
+        <span class="filter-unit">%</span>
+      </div>
+      <div class="filter-group">
+        <select id="filter-show">
+          <option value="all">All Props</option>
+          <option value="plays">Plays Only</option>
+        </select>
+      </div>
+      <div class="filter-group">
+        <select id="filter-sort">
+          <option value="edge">Sort: Edge</option>
+          <option value="prob">Sort: Probability</option>
+          <option value="name">Sort: Player</option>
+        </select>
+      </div>
+    </div>
   </div>
 
-  <!-- Filter controls -->
-  <div id="filters">
-    <label>Min edge: <input type="number" id="filter-edge" value="0" step="1" min="0" max="30" />%</label>
-    <label>Show:
-      <select id="filter-show">
-        <option value="all">All props</option>
-        <option value="plays">Plays only</option>
-      </select>
-    </label>
-  </div>
-
+  <!-- Main board -->
   <main id="board"></main>
 
-  <!-- Parlay builder panel (hidden by default) -->
-  <div id="parlay-panel" class="hidden">
-    <h2>Parlay Builder</h2>
-    <p class="meta">Click "Add to Parlay" on any card, then price it here.</p>
-    <div id="parlay-legs"></div>
-    <button id="price-parlay" class="btn">Price Parlay</button>
+  <!-- Parlay builder panel -->
+  <div id="parlay-panel" class="panel hidden">
+    <div class="panel-header">
+      <h2>Parlay Builder</h2>
+      <span id="parlay-count" class="pill">0 legs</span>
+    </div>
+    <div id="parlay-legs">
+      <div class="empty-state">Add picks from the board to build a parlay</div>
+    </div>
+    <div class="panel-actions">
+      <button id="clear-parlay" class="btn btn-outline">Clear All</button>
+      <button id="price-parlay" class="btn btn-primary">Price Parlay</button>
+    </div>
     <div id="parlay-result"></div>
   </div>
 
   <!-- Backtest panel -->
-  <div id="backtest-panel" class="hidden">
-    <h2>Backtest</h2>
-    <div class="backtest-controls">
-      <label>Games: <input type="number" id="bt-games" value="200" min="50" max="2000" /></label>
-      <label>Min edge: <input type="number" id="bt-edge" value="3" step="0.5" min="0" />%</label>
-      <button id="run-backtest" class="btn">Run Backtest</button>
+  <div id="backtest-panel" class="panel hidden">
+    <div class="panel-header"><h2>Model Backtest</h2></div>
+    <div class="backtest-form">
+      <div class="form-row">
+        <div class="form-group">
+          <label>Simulated Games</label>
+          <input type="number" id="bt-games" value="200" min="50" max="2000" />
+        </div>
+        <div class="form-group">
+          <label>Min Edge %</label>
+          <input type="number" id="bt-edge" value="3" step="0.5" min="0" />
+        </div>
+        <button id="run-backtest" class="btn btn-primary">Run Backtest</button>
+      </div>
     </div>
     <div id="backtest-result"></div>
   </div>
 
   <!-- Live scores panel -->
-  <div id="scores-panel" class="hidden">
-    <h2>Live Scores</h2>
+  <div id="scores-panel" class="panel hidden">
+    <div class="panel-header">
+      <h2>Live Scores</h2>
+      <button class="btn btn-sm btn-outline" onclick="loadScores()">Refresh</button>
+    </div>
     <div id="scores-content"></div>
   </div>
 
+  <!-- Toast container -->
+  <div id="toast-container"></div>
+
   <footer>
-    <small>Research only. 21+. Bet responsibly.</small>
+    <span>PropEdge Research</span>
+    <span class="dot-sep"></span>
+    <span>21+ only. Not gambling advice.</span>
   </footer>
   <script src="/static/app.js"></script>
 </body>
