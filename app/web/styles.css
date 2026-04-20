@@ -202,3 +202,74 @@ main {
 .score-card .status { color: var(--muted); font-size: 0.75rem; }
 
 footer { text-align: center; color: var(--muted); padding: 20px; font-size: 0.75rem; }
+
+/* ---- Mobile responsive ---- */
+@media (max-width: 600px) {
+  header { padding: 10px 12px; }
+  header h1 { font-size: 1rem; flex-wrap: wrap; }
+  nav { gap: 4px; }
+  nav button { padding: 6px 8px; font-size: 0.7rem; }
+  #search-bar { padding: 8px 12px; }
+  #filters { padding: 0 12px 6px; gap: 8px; flex-wrap: wrap; }
+  main { padding: 8px 12px; grid-template-columns: 1fr; gap: 10px; }
+  .card { padding: 12px; }
+  .card h2 { font-size: 0.9rem; }
+  .grid { font-size: 0.78rem; }
+  #parlay-panel, #backtest-panel, #scores-panel { padding: 12px; }
+  .backtest-controls { flex-wrap: wrap; gap: 8px; }
+  .status-badge { display: none; }
+  .score-card { flex-wrap: wrap; gap: 4px; }
+}
+
+/* ---- Loading spinner ---- */
+.loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px;
+}
+.spinner {
+  width: 28px;
+  height: 28px;
+  border: 3px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+  margin-right: 10px;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ---- Toast notifications ---- */
+.toast {
+  position: fixed;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--card);
+  border: 1px solid var(--accent);
+  color: var(--text);
+  padding: 10px 20px;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  z-index: 100;
+  animation: fadeInUp 0.3s ease;
+}
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateX(-50%) translateY(10px); }
+  to { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+
+/* ---- Pull-to-refresh hint ---- */
+.refresh-hint {
+  text-align: center;
+  color: var(--muted);
+  font-size: 0.75rem;
+  padding: 6px;
+  cursor: pointer;
+}
+.refresh-hint:hover { color: var(--accent); }
+
+/* ---- Edge badge colors ---- */
+.edge-high { color: var(--good); font-weight: 700; }
+.edge-mid { color: #fbbf24; font-weight: 600; }
+.edge-low { color: var(--muted); }
