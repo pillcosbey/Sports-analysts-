@@ -362,6 +362,22 @@ main#board {
   font-size: 0.85rem;
 }
 
+.gated-state {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  padding: 60px 24px; text-align: center;
+  background: var(--bg-card); border: 1px dashed var(--border);
+  border-radius: var(--radius-lg); margin: 20px auto; max-width: 520px;
+}
+.gated-state .gated-icon {
+  font-size: 2.2rem; margin-bottom: 10px;
+}
+.gated-state .gated-title {
+  font-size: 1.05rem; font-weight: 700; color: var(--text); margin-bottom: 6px;
+}
+.gated-state .gated-msg {
+  font-size: 0.85rem; color: var(--text-secondary); max-width: 420px; line-height: 1.45;
+}
+
 /* Parlay result */
 #parlay-result {
   margin-top: 16px; padding: 16px; background: var(--bg-card);

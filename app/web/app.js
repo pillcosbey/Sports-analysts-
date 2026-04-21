@@ -27,11 +27,49 @@ async function load(sport, phase) {
   try {
     const r = await fetch(`/api/board?sport=${sport}&phase=${phase}`);
     const data = await r.json();
-    allCards = data.cards;
+    if (data.gated) {
+      allCards = [];
+      document.getElementById("card-count").textContent = "";
+      board.innerHTML = `
+        <div class="gated-state">
+          <div class="gated-icon">&#9202;</div>
+          <div class="gated-title">${label} is gated</div>
+          <div class="gated-msg">${data.message || "Not available right now."}</div>
+        </div>`;
+      return;
+    }
+    if (data.error) {
+      allCards = [];
+      board.innerHTML = `<div class="loading"><span class="loading-text">${data.error}</span></div>`;
+      return;
+    }
+    allCards = data.cards || [];
     applyFilters();
   } catch (e) {
     board.innerHTML = `<div class="loading"><span class="loading-text">Failed to load. Tap to retry.</span></div>`;
     board.querySelector(".loading").onclick = () => load(sport, phase);
+  }
+}
+
+/* ===== NBA Live availability polling =====
+ * NBA Live research is only offered during halftime of a playoff game.
+ * The tab stays hidden until the server reports a qualifying game.
+ */
+async function checkNbaLiveAvailability() {
+  try {
+    const r = await fetch("/api/nba/live_availability");
+    const d = await r.json();
+    const btn = document.getElementById("nav-nba-live");
+    if (!btn) return;
+    btn.classList.toggle("hidden", !d.available);
+    if (d.available && d.games && d.games.length) {
+      const g = d.games[0];
+      btn.title = `${g.away} @ ${g.home} — ${g.series} · Halftime`;
+    } else {
+      btn.title = "NBA Live opens at halftime of playoff games";
+    }
+  } catch (_) {
+    // leave hidden on network failure
   }
 }
 
@@ -562,4 +600,6 @@ async function loadStatus() {
 
 /* ===== Init ===== */
 loadStatus();
+checkNbaLiveAvailability();
+setInterval(checkNbaLiveAvailability, 60000);
 load("nba", "pregame");

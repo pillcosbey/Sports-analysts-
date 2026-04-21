@@ -42,6 +42,38 @@ def board(
     sport: str = Query("nba", pattern="^(nba|mlb)$"),
     phase: str = Query("pregame", pattern="^(pregame|live)$"),
 ):
+    # MLB live is disabled — only pregame research is offered for baseball.
+    if sport == "mlb" and phase == "live":
+        return JSONResponse(
+            {"error": "MLB live research is disabled. Use pregame for baseball."},
+            status_code=400,
+        )
+    # NBA live is only open when a playoff game is at halftime.
+    if sport == "nba" and phase == "live":
+        from app.data.live_scores import LiveScoresFeed
+        from app.data.nba_stats import NBA_PLAYOFF_TEAMS
+
+        try:
+            games = LiveScoresFeed().nba_scoreboard()
+        except Exception:  # pragma: no cover
+            games = []
+        halftime = any(
+            g.is_halftime
+            and g.home_team in NBA_PLAYOFF_TEAMS
+            and g.away_team in NBA_PLAYOFF_TEAMS
+            for g in games
+        )
+        if not halftime:
+            return JSONResponse(
+                {
+                    "sport": sport,
+                    "phase": phase,
+                    "cards": [],
+                    "gated": True,
+                    "message": "NBA Live research opens at halftime of playoff games.",
+                }
+            )
+
     cards = build_board(sport, phase=phase)
     return JSONResponse({"sport": sport, "phase": phase, "cards": cards})
 
@@ -159,6 +191,43 @@ def nba_playoffs():
             "roster": roster,
         }
     return {"bracket": NBA_PLAYOFF_BRACKET, "teams": teams}
+
+
+@app.get("/api/nba/live_availability")
+def nba_live_availability():
+    """NBA Live research is only available during halftime of a playoff game.
+
+    Returns { available, games: [...] } where each game has teams/score/clock.
+    If there's no live playoff halftime, the UI hides the NBA Live tab.
+    """
+    from app.data.live_scores import LiveScoresFeed
+    from app.data.nba_stats import NBA_PLAYOFF_TEAMS
+
+    try:
+        feed = LiveScoresFeed()
+        games = feed.nba_scoreboard()
+    except Exception:  # pragma: no cover - network failure
+        games = []
+
+    halftime_games = [
+        g for g in games
+        if g.is_halftime
+        and g.home_team in NBA_PLAYOFF_TEAMS
+        and g.away_team in NBA_PLAYOFF_TEAMS
+    ]
+    return {
+        "available": bool(halftime_games),
+        "games": [
+            {
+                "game_id": g.game_id,
+                "home": g.home_team,
+                "away": g.away_team,
+                "score": f"{g.away_score}-{g.home_score}",
+                "series": NBA_PLAYOFF_TEAMS[g.home_team]["series"],
+            }
+            for g in halftime_games
+        ],
+    }
 
 
 # ---------- Parlay builder ----------
