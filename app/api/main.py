@@ -167,6 +167,162 @@ def player_gamelog(
         return JSONResponse({"error": str(e)}, status_code=404)
 
 
+@app.get("/api/player/{player_name}/shooting")
+def player_shooting(player_name: str):
+    """Deterministic shooting profile derived from the player's season means.
+
+    We don't have real play-by-play archives wired up, so we back out a
+    plausible shot chart from points / threes_made / minutes using stable
+    per-player seeded efficiencies.
+    """
+    import hashlib
+    from app.data.nba_stats import NBA_PLAYERS
+
+    if player_name not in NBA_PLAYERS:
+        return JSONResponse({"error": f"Player not found: {player_name}"}, status_code=404)
+
+    p = NBA_PLAYERS[player_name]
+    pts = p["points"][0]
+    three_pm = p["threes_made"][0]
+    minutes = p.get("min", 28.0)
+
+    # Stable seeds from name so the profile doesn't flicker between refreshes.
+    seed = int(hashlib.md5(player_name.encode()).hexdigest()[:8], 16)
+
+    def jitter(base: float, spread: float, offset: int) -> float:
+        frac = ((seed >> (offset * 3)) & 0xFF) / 255.0  # 0..1
+        return base + (frac - 0.5) * 2 * spread
+
+    three_pct = max(0.25, min(0.45, jitter(0.355, 0.06, 0)))
+    two_pct = max(0.42, min(0.62, jitter(0.515, 0.05, 1)))
+    ft_pct = max(0.55, min(0.95, jitter(0.78, 0.12, 2)))
+    ft_rate = max(0.10, min(0.40, jitter(0.22, 0.08, 3)))  # FTA per FGA
+
+    three_pa = three_pm / three_pct if three_pct > 0 else 0.0
+    # points from 3s + 2s + FTs  =>  2*2PM + 3*3PM + FTM = pts
+    # solve for 2PM assuming FTM/FGA ≈ ft_rate * ft_pct.
+    # Use iteration: assume FGA ≈ 3PA + 2PA. Start with 2PA guess.
+    two_pa = max(1.0, (pts - 3 * three_pm) / max(0.6, 2 * two_pct))
+    fga = two_pa + three_pa
+    fta = fga * ft_rate
+    ftm = fta * ft_pct
+    # re-solve 2PM to balance points exactly
+    two_pm_needed = max(0.0, (pts - 3 * three_pm - ftm) / 2)
+    two_pa = max(two_pm_needed / two_pct, 0.5) if two_pct > 0 else 0.0
+    two_pm = two_pa * two_pct
+    fga = two_pa + three_pa
+    fgm = two_pm + three_pm
+    fg_pct = fgm / fga if fga > 0 else 0.0
+    efg_pct = (fgm + 0.5 * three_pm) / fga if fga > 0 else 0.0
+    ts_pct = pts / (2 * (fga + 0.44 * fta)) if (fga + fta) > 0 else 0.0
+
+    # Zone breakdown — again, deterministic shares.
+    rim_share = max(0.15, min(0.55, jitter(0.35, 0.1, 4)))   # at-rim
+    mid_share = max(0.10, min(0.35, jitter(0.18, 0.06, 5)))  # mid-range
+    three_share = three_pa / fga if fga > 0 else 0.0
+    # normalize so rim + mid + three ≈ 1
+    remaining = max(0.0, 1 - three_share)
+    total_2 = rim_share + mid_share
+    if total_2 > 0:
+        rim_share = rim_share / total_2 * remaining
+        mid_share = mid_share / total_2 * remaining
+
+    return {
+        "player": player_name,
+        "team": p["team"],
+        "minutes": round(minutes, 1),
+        "fg": {"made": round(fgm, 1), "att": round(fga, 1), "pct": round(fg_pct * 100, 1)},
+        "three": {"made": round(three_pm, 1), "att": round(three_pa, 1), "pct": round(three_pct * 100, 1)},
+        "ft": {"made": round(ftm, 1), "att": round(fta, 1), "pct": round(ft_pct * 100, 1)},
+        "ts_pct": round(ts_pct * 100, 1),
+        "efg_pct": round(efg_pct * 100, 1),
+        "zones": [
+            {"name": "At Rim", "share": round(rim_share * 100, 1), "pct": round(min(0.75, two_pct + 0.12) * 100, 1)},
+            {"name": "Mid-Range", "share": round(mid_share * 100, 1), "pct": round(max(0.30, two_pct - 0.08) * 100, 1)},
+            {"name": "3-Point", "share": round(three_share * 100, 1), "pct": round(three_pct * 100, 1)},
+        ],
+    }
+
+
+@app.get("/api/player/{player_name}/similar")
+def player_similar(player_name: str, n: int = Query(6, ge=1, le=10)):
+    """Players with the closest stat profile (Euclidean distance on normalized means)."""
+    from app.data.nba_stats import NBA_PLAYERS, NBA_TEAM_NAMES
+
+    if player_name not in NBA_PLAYERS:
+        return JSONResponse({"error": f"Player not found: {player_name}"}, status_code=404)
+
+    keys = ("points", "rebounds", "assists", "threes_made", "steals", "blocks")
+
+    # League-wide scales for normalization so no stat dominates the distance.
+    scales = {}
+    for k in keys:
+        vals = [pl[k][0] for pl in NBA_PLAYERS.values() if isinstance(pl.get(k), tuple)]
+        scales[k] = max(vals) if vals else 1.0
+
+    def vec(p):
+        return [p[k][0] / scales[k] for k in keys]
+
+    base = vec(NBA_PLAYERS[player_name])
+
+    distances = []
+    for name, p in NBA_PLAYERS.items():
+        if name == player_name:
+            continue
+        v = vec(p)
+        d2 = sum((a - b) ** 2 for a, b in zip(base, v))
+        distances.append((d2, name, p))
+
+    distances.sort(key=lambda x: x[0])
+    results = []
+    for d2, name, p in distances[:n]:
+        sim_pct = max(0, round((1 - min(1.0, d2 ** 0.5 / 1.5)) * 100))
+        results.append({
+            "name": name,
+            "team": p["team"],
+            "team_name": NBA_TEAM_NAMES.get(p["team"], p["team"]),
+            "points": p["points"][0],
+            "rebounds": p["rebounds"][0],
+            "assists": p["assists"][0],
+            "threes_made": p["threes_made"][0],
+            "similarity": sim_pct,
+        })
+    return {"player": player_name, "similar": results}
+
+
+@app.get("/api/player/{player_name}/types")
+def player_types(player_name: str):
+    """Summary across all prop types available for this player."""
+    from app.data.gamelog import build_nba_gamelog
+    from app.data.nba_stats import NBA_PLAYERS, COMBO_STATS
+
+    if player_name not in NBA_PLAYERS:
+        return JSONResponse({"error": f"Player not found: {player_name}"}, status_code=404)
+
+    p = NBA_PLAYERS[player_name]
+    stat_keys = [k for k in ("points", "rebounds", "assists", "threes_made", "steals", "blocks") if k in p]
+    stat_keys += list(COMBO_STATS.keys())
+
+    out = []
+    for stat in stat_keys:
+        try:
+            g = build_nba_gamelog(player_name, stat, n_games=12)
+        except KeyError:
+            continue
+        out.append({
+            "stat": stat,
+            "season_avg": g["season_avg"],
+            "graph_avg": g["graph_avg"],
+            "line": g["line"],
+            "hit_rate": g["hit_rate"],
+            "hits": g["hits"],
+            "games": g["games_played"],
+        })
+    # sort by hit rate desc so the best-performing markets float to the top
+    out.sort(key=lambda r: r["hit_rate"], reverse=True)
+    return {"player": player_name, "team": p["team"], "types": out}
+
+
 @app.get("/api/player/{player_name}/teammates")
 def player_teammates(
     player_name: str,

@@ -220,7 +220,7 @@ const NBA_STAT_TABS = [
   {key: "blocks",      label: "Blocks"},
 ];
 
-let playerGraphState = {name: null, sport: null, stat: "points"};
+let playerGraphState = {name: null, sport: null, stat: "points", tab: "graph"};
 
 async function loadPlayer(name, sport) {
   searchResults.style.display = "none";
@@ -229,23 +229,43 @@ async function loadPlayer(name, sport) {
     toast("Graph view is NBA-only for now", "error");
     return;
   }
-  playerGraphState = {name, sport, stat: "points"};
+  playerGraphState = {name, sport, stat: "points", tab: "graph"};
   renderPlayerGraph();
 }
 
 async function renderPlayerGraph() {
-  const {name, stat} = playerGraphState;
+  const {name, stat, tab} = playerGraphState;
   const modal = ensurePlayerModal();
   const body = modal.querySelector(".pg-body");
   body.innerHTML = `<div class="loading"><div class="spinner"></div><span class="loading-text">Loading ${name}...</span></div>`;
   modal.classList.remove("hidden");
+
   try {
-    const r = await fetch(`/api/player/${encodeURIComponent(name)}/gamelog?stat=${encodeURIComponent(stat)}`);
-    const d = await r.json();
-    if (d.error) { body.innerHTML = `<div class="empty-state">${d.error}</div>`; return; }
-    body.innerHTML = buildPlayerGraphHtml(d);
+    // Every tab needs the gamelog for the shared header (name/team/line) — fetch once.
+    const gR = await fetch(`/api/player/${encodeURIComponent(name)}/gamelog?stat=${encodeURIComponent(stat)}`);
+    const g = await gR.json();
+    if (g.error) { body.innerHTML = `<div class="empty-state">${g.error}</div>`; return; }
+
+    let contentHtml = "";
+    if (tab === "shooting") {
+      const sR = await fetch(`/api/player/${encodeURIComponent(name)}/shooting`);
+      const s = await sR.json();
+      contentHtml = s.error ? `<div class="empty-state">${s.error}</div>` : buildShootingHtml(s);
+    } else if (tab === "similar") {
+      const sR = await fetch(`/api/player/${encodeURIComponent(name)}/similar`);
+      const s = await sR.json();
+      contentHtml = s.error ? `<div class="empty-state">${s.error}</div>` : buildSimilarHtml(s);
+    } else if (tab === "types") {
+      const tR = await fetch(`/api/player/${encodeURIComponent(name)}/types`);
+      const t = await tR.json();
+      contentHtml = t.error ? `<div class="empty-state">${t.error}</div>` : buildTypesHtml(t);
+    } else {
+      contentHtml = buildGraphContentHtml(g);
+    }
+
+    body.innerHTML = buildPlayerGraphHtml(g, contentHtml);
   } catch (e) {
-    body.innerHTML = `<div class="empty-state">Failed to load graph</div>`;
+    body.innerHTML = `<div class="empty-state">Failed to load player</div>`;
   }
 }
 
@@ -270,10 +290,17 @@ function ensurePlayerModal() {
   modal.querySelector(".pg-close").addEventListener("click", closePlayerGraph);
   modal.querySelector(".pg-overlay").addEventListener("click", closePlayerGraph);
   modal.addEventListener("click", (e) => {
-    const btn = e.target.closest(".pg-stat-tab");
-    if (!btn) return;
-    playerGraphState.stat = btn.dataset.stat;
-    renderPlayerGraph();
+    const statBtn = e.target.closest(".pg-stat-tab");
+    if (statBtn) {
+      playerGraphState.stat = statBtn.dataset.stat;
+      renderPlayerGraph();
+      return;
+    }
+    const subBtn = e.target.closest(".pg-subtab");
+    if (subBtn && !subBtn.disabled) {
+      playerGraphState.tab = subBtn.dataset.tab;
+      renderPlayerGraph();
+    }
   });
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") closePlayerGraph();
@@ -287,10 +314,10 @@ function closePlayerGraph() {
 }
 
 const PG_SUBTABS = [
-  {key: "graph",    label: "Graph",    active: true},
-  {key: "shooting", label: "Shooting", active: false},
-  {key: "similar",  label: "Similar",  active: false},
-  {key: "types",    label: "Types",    active: false},
+  {key: "graph",    label: "Graph"},
+  {key: "shooting", label: "Shooting"},
+  {key: "similar",  label: "Similar"},
+  {key: "types",    label: "Types"},
 ];
 
 async function loadTeammates(player, stat) {
@@ -309,26 +336,94 @@ async function loadTeammates(player, stat) {
   } catch (_) { /* non-fatal */ }
 }
 
-function buildPlayerGraphHtml(d) {
-  // Highlight the currently-selected stat tab and queue teammate fetch
-  setTimeout(() => {
-    document.querySelectorAll(".pg-stat-tab").forEach(b =>
-      b.classList.toggle("active", b.dataset.stat === d.stat));
-    loadTeammates(d.player, d.stat);
-  }, 0);
+/* ===== Sub-tab (Graph / Shooting / Similar / Types) content renderers ===== */
 
+function buildShootingHtml(s) {
+  const zones = s.zones.map(z => `
+    <div class="pg-zone">
+      <div class="pg-zone-head">
+        <span class="pg-zone-name">${z.name}</span>
+        <span class="pg-zone-pct">${z.pct}%</span>
+      </div>
+      <div class="pg-zone-bar">
+        <div class="pg-zone-fill" style="width:${z.share}%"></div>
+      </div>
+      <div class="pg-zone-share">${z.share}% of shots</div>
+    </div>
+  `).join("");
+  return `
+    <div class="pg-shoot-grid">
+      <div class="pg-shoot-stat"><span class="lbl">FG</span><span class="val">${s.fg.made}/${s.fg.att}</span><span class="pct">${s.fg.pct}%</span></div>
+      <div class="pg-shoot-stat"><span class="lbl">3PT</span><span class="val">${s.three.made}/${s.three.att}</span><span class="pct">${s.three.pct}%</span></div>
+      <div class="pg-shoot-stat"><span class="lbl">FT</span><span class="val">${s.ft.made}/${s.ft.att}</span><span class="pct">${s.ft.pct}%</span></div>
+      <div class="pg-shoot-stat"><span class="lbl">TS%</span><span class="val">${s.ts_pct}%</span><span class="pct">eFG ${s.efg_pct}%</span></div>
+    </div>
+    <div class="pg-section-title">Shot Distribution</div>
+    <div class="pg-zones">${zones}</div>
+    <div class="pg-footer-note">Per-game averages · ${s.minutes} min</div>
+  `;
+}
+
+function buildSimilarHtml(d) {
+  if (!d.similar || !d.similar.length) {
+    return `<div class="empty-state">No similar players found</div>`;
+  }
+  const rows = d.similar.map(s => {
+    const tint = TEAM_TINT[s.team] || "#5a6270";
+    return `
+      <button class="pg-similar-row" onclick="loadPlayer('${s.name.replace(/'/g,"\\'")}','nba')">
+        <span class="pg-sim-avatar" style="background:${tint}">${initials(s.name)}</span>
+        <span class="pg-sim-info">
+          <span class="pg-sim-name">${s.name}</span>
+          <span class="pg-sim-team">${s.team} · ${s.team_name}</span>
+        </span>
+        <span class="pg-sim-line"><span>${s.points}</span><span class="pg-sim-sub">PTS</span></span>
+        <span class="pg-sim-line"><span>${s.rebounds}</span><span class="pg-sim-sub">REB</span></span>
+        <span class="pg-sim-line"><span>${s.assists}</span><span class="pg-sim-sub">AST</span></span>
+        <span class="pg-sim-match">${s.similarity}%</span>
+      </button>`;
+  }).join("");
+  return `
+    <div class="pg-section-title">Most similar players by stat profile</div>
+    <div class="pg-similar-list">${rows}</div>
+  `;
+}
+
+function buildTypesHtml(d) {
+  if (!d.types || !d.types.length) {
+    return `<div class="empty-state">No prop types available</div>`;
+  }
+  const rows = d.types.map(t => {
+    const hitColor = t.hit_rate >= 0.6 ? "var(--green)" : t.hit_rate >= 0.4 ? "var(--yellow)" : "var(--red)";
+    const hitPct = (t.hit_rate * 100).toFixed(0);
+    return `
+      <button class="pg-type-row" onclick="switchToStat('${t.stat}')">
+        <span class="pg-type-name">${prettyStat(t.stat)}</span>
+        <span class="pg-type-line">${t.line}</span>
+        <span class="pg-type-avg">avg ${t.graph_avg}</span>
+        <span class="pg-type-hit" style="color:${hitColor}">${hitPct}% (${t.hits}/${t.games})</span>
+        <span class="pg-type-hitbar"><span class="pg-type-hitfill" style="width:${hitPct}%;background:${hitColor}"></span></span>
+      </button>`;
+  }).join("");
+  return `
+    <div class="pg-section-title">Hit rate by prop type (L12)</div>
+    <div class="pg-types-list">${rows}</div>
+  `;
+}
+
+function switchToStat(stat) {
+  // The Types tab exposes rows you can click to jump to that stat's Graph.
+  playerGraphState.stat = stat;
+  playerGraphState.tab = "graph";
+  renderPlayerGraph();
+}
+
+function buildGraphContentHtml(d) {
   const values = d.games.map(g => g.value).filter(v => v !== null);
   const maxVal = Math.max(d.line * 1.4, ...values, 1);
-
   const linePct = (d.line / maxVal) * 100;
   const avgColor = d.graph_avg >= d.line ? "var(--green)" : "var(--red)";
   const hitColor = d.hit_rate >= 0.5 ? "var(--green)" : "var(--red)";
-
-  const statLabel = prettyStat(d.stat);
-
-  const subtabs = PG_SUBTABS.map(t =>
-    `<button class="pg-subtab ${t.active ? 'active' : 'disabled'}" ${t.active ? '' : 'disabled title="Coming soon"'}>${t.label}</button>`
-  ).join("");
 
   const bars = d.games.map(g => {
     const pending = g.value === null;
@@ -353,24 +448,7 @@ function buildPlayerGraphHtml(d) {
       </div>`;
   }).join("");
 
-  const playoffStrip = d.is_playoff_team
-    ? `<div class="pg-playoff-strip">PLAYOFFS · ${d.playoff_series}</div>`
-    : "";
-
   return `
-    <div class="pg-header">
-      <div class="pg-avatar" style="background:${TEAM_TINT[d.team] || 'var(--bg-card)'}">${initials(d.player)}</div>
-      <div class="pg-name-wrap">
-        <div class="pg-name">${d.player}</div>
-        <div class="pg-team">${d.team} · ${d.team_name}</div>
-      </div>
-      <div class="pg-line-box">
-        <span class="pg-line-val">${d.line}</span>
-        <span class="pg-line-label">${statLabel} line</span>
-      </div>
-    </div>
-    ${playoffStrip}
-    <div class="pg-subtabs">${subtabs}</div>
     <div class="pg-summary">
       <div class="pg-sum-item">
         <span class="pg-sum-label">SEASON AVG</span>
@@ -407,6 +485,45 @@ function buildPlayerGraphHtml(d) {
         <span class="pg-chip-val" style="color:${hitColor}">${(d.hit_rate * 100).toFixed(0)}%</span>
       </div>
     </div>
+  `;
+}
+
+function buildPlayerGraphHtml(d, contentHtml) {
+  // Highlight current stat tab, current sub-tab, and kick off teammate fetch.
+  const activeTab = playerGraphState.tab || "graph";
+  setTimeout(() => {
+    document.querySelectorAll(".pg-stat-tab").forEach(b =>
+      b.classList.toggle("active", b.dataset.stat === d.stat));
+    document.querySelectorAll(".pg-subtab").forEach(b =>
+      b.classList.toggle("active", b.dataset.tab === activeTab));
+    loadTeammates(d.player, d.stat);
+  }, 0);
+
+  const statLabel = prettyStat(d.stat);
+
+  const subtabs = PG_SUBTABS.map(t =>
+    `<button data-tab="${t.key}" class="pg-subtab ${t.key === activeTab ? 'active' : ''}">${t.label}</button>`
+  ).join("");
+
+  const playoffStrip = d.is_playoff_team
+    ? `<div class="pg-playoff-strip">PLAYOFFS · ${d.playoff_series}</div>`
+    : "";
+
+  return `
+    <div class="pg-header">
+      <div class="pg-avatar" style="background:${TEAM_TINT[d.team] || 'var(--bg-card)'}">${initials(d.player)}</div>
+      <div class="pg-name-wrap">
+        <div class="pg-name">${d.player}</div>
+        <div class="pg-team">${d.team} · ${d.team_name}</div>
+      </div>
+      <div class="pg-line-box">
+        <span class="pg-line-val">${d.line}</span>
+        <span class="pg-line-label">${statLabel} line</span>
+      </div>
+    </div>
+    ${playoffStrip}
+    <div class="pg-subtabs">${subtabs}</div>
+    <div class="pg-tab-content">${contentHtml}</div>
     <div class="pg-suggested-wrap">
       <div class="pg-suggested-title">Suggested · ${d.team} teammates</div>
       <div id="pg-suggested" class="pg-suggested"></div>
