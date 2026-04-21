@@ -286,11 +286,35 @@ function closePlayerGraph() {
   if (modal) modal.classList.add("hidden");
 }
 
+const PG_SUBTABS = [
+  {key: "graph",    label: "Graph",    active: true},
+  {key: "shooting", label: "Shooting", active: false},
+  {key: "similar",  label: "Similar",  active: false},
+  {key: "types",    label: "Types",    active: false},
+];
+
+async function loadTeammates(player, stat) {
+  try {
+    const r = await fetch(`/api/player/${encodeURIComponent(player)}/teammates?stat=${encodeURIComponent(stat)}&n=6`);
+    const d = await r.json();
+    const host = document.getElementById("pg-suggested");
+    if (!host || !d.teammates || !d.teammates.length) return;
+    host.innerHTML = d.teammates.map(m => `
+      <button class="pg-sugg-item" onclick="loadPlayer('${m.name.replace(/'/g,"\\'")}','nba')">
+        <span class="pg-sugg-avatar">${initials(m.name)}</span>
+        <span class="pg-sugg-name">${m.name}</span>
+        <span class="pg-sugg-mean">${m.mean}</span>
+      </button>
+    `).join("");
+  } catch (_) { /* non-fatal */ }
+}
+
 function buildPlayerGraphHtml(d) {
-  // Highlight the currently-selected stat tab
+  // Highlight the currently-selected stat tab and queue teammate fetch
   setTimeout(() => {
     document.querySelectorAll(".pg-stat-tab").forEach(b =>
       b.classList.toggle("active", b.dataset.stat === d.stat));
+    loadTeammates(d.player, d.stat);
   }, 0);
 
   const values = d.games.map(g => g.value).filter(v => v !== null);
@@ -301,6 +325,10 @@ function buildPlayerGraphHtml(d) {
   const hitColor = d.hit_rate >= 0.5 ? "var(--green)" : "var(--red)";
 
   const statLabel = prettyStat(d.stat);
+
+  const subtabs = PG_SUBTABS.map(t =>
+    `<button class="pg-subtab ${t.active ? 'active' : 'disabled'}" ${t.active ? '' : 'disabled title="Coming soon"'}>${t.label}</button>`
+  ).join("");
 
   const bars = d.games.map(g => {
     const pending = g.value === null;
@@ -331,7 +359,7 @@ function buildPlayerGraphHtml(d) {
 
   return `
     <div class="pg-header">
-      <div class="pg-avatar">${initials(d.player)}</div>
+      <div class="pg-avatar" style="background:${TEAM_TINT[d.team] || 'var(--bg-card)'}">${initials(d.player)}</div>
       <div class="pg-name-wrap">
         <div class="pg-name">${d.player}</div>
         <div class="pg-team">${d.team} · ${d.team_name}</div>
@@ -342,6 +370,7 @@ function buildPlayerGraphHtml(d) {
       </div>
     </div>
     ${playoffStrip}
+    <div class="pg-subtabs">${subtabs}</div>
     <div class="pg-summary">
       <div class="pg-sum-item">
         <span class="pg-sum-label">SEASON AVG</span>
@@ -363,6 +392,24 @@ function buildPlayerGraphHtml(d) {
         </div>
         <div class="pg-bars">${bars}</div>
       </div>
+    </div>
+    <div class="pg-chip-row">
+      <div class="pg-chip">
+        <span class="pg-chip-label">LINE</span>
+        <span class="pg-chip-val">${d.line}</span>
+      </div>
+      <div class="pg-chip">
+        <span class="pg-chip-label">L${d.games_played}</span>
+        <span class="pg-chip-val">${d.graph_avg}</span>
+      </div>
+      <div class="pg-chip">
+        <span class="pg-chip-label">HIT%</span>
+        <span class="pg-chip-val" style="color:${hitColor}">${(d.hit_rate * 100).toFixed(0)}%</span>
+      </div>
+    </div>
+    <div class="pg-suggested-wrap">
+      <div class="pg-suggested-title">Suggested · ${d.team} teammates</div>
+      <div id="pg-suggested" class="pg-suggested"></div>
     </div>
     <div class="pg-footer-note">Season 25/26 · ${d.games_played} recent games</div>
   `;

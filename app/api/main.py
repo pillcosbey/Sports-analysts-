@@ -167,6 +167,43 @@ def player_gamelog(
         return JSONResponse({"error": str(e)}, status_code=404)
 
 
+@app.get("/api/player/{player_name}/teammates")
+def player_teammates(
+    player_name: str,
+    stat: str = Query("points"),
+    n: int = Query(6, ge=1, le=10),
+):
+    """Teammates of the given NBA player for the 'Suggested' strip in the graph modal."""
+    from app.data.nba_stats import NBA_PLAYERS, COMBO_STATS
+
+    if player_name not in NBA_PLAYERS:
+        return JSONResponse({"error": f"Player not found: {player_name}"}, status_code=404)
+    team = NBA_PLAYERS[player_name]["team"]
+
+    def mean_for(p: dict, s: str) -> Optional[float]:
+        if s in COMBO_STATS:
+            try:
+                return sum(p[c][0] for c in COMBO_STATS[s])
+            except KeyError:
+                return None
+        v = p.get(s)
+        if isinstance(v, tuple):
+            return v[0]
+        return None
+
+    mates = []
+    for name, p in NBA_PLAYERS.items():
+        if name == player_name or p["team"] != team:
+            continue
+        m = mean_for(p, stat)
+        if m is None:
+            continue
+        mates.append({"name": name, "team": team, "mean": round(m, 1)})
+
+    mates.sort(key=lambda x: x["mean"], reverse=True)
+    return {"player": player_name, "team": team, "stat": stat, "teammates": mates[:n]}
+
+
 # ---------- Playoffs ----------
 
 @app.get("/api/playoffs/nba")
