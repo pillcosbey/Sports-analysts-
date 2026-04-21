@@ -169,41 +169,189 @@ document.addEventListener("click", e => {
   if (!e.target.closest("#search-wrap")) searchResults.style.display = "none";
 });
 
+/* ===== Player graph modal (PropsMadness-style) ===== */
+const NBA_STAT_TABS = [
+  {key: "points",      label: "Points"},
+  {key: "assists",     label: "Assists"},
+  {key: "rebounds",    label: "Rebounds"},
+  {key: "threes_made", label: "Threes"},
+  {key: "pa",          label: "Pts+Ast"},
+  {key: "pr",          label: "Pts+Reb"},
+  {key: "pra",         label: "P+R+A"},
+  {key: "steals",      label: "Steals"},
+  {key: "blocks",      label: "Blocks"},
+];
+
+let playerGraphState = {name: null, sport: null, stat: "points"};
+
 async function loadPlayer(name, sport) {
   searchResults.style.display = "none";
-  searchInput.value = name;
-  showPanel("board");
-  document.getElementById("board-title").textContent = name;
-  document.getElementById("card-count").textContent = "";
-  board.innerHTML = `<div class="loading"><div class="spinner"></div><span class="loading-text">Loading ${name}...</span></div>`;
+  searchInput.value = "";
+  if (sport !== "nba") {
+    toast("Graph view is NBA-only for now", "error");
+    return;
+  }
+  playerGraphState = {name, sport, stat: "points"};
+  renderPlayerGraph();
+}
+
+async function renderPlayerGraph() {
+  const {name, stat} = playerGraphState;
+  const modal = ensurePlayerModal();
+  const body = modal.querySelector(".pg-body");
+  body.innerHTML = `<div class="loading"><div class="spinner"></div><span class="loading-text">Loading ${name}...</span></div>`;
+  modal.classList.remove("hidden");
   try {
-    const r = await fetch(`/api/player/${encodeURIComponent(name)}?sport=${sport}`);
-    const data = await r.json();
-    if (data.error) { board.innerHTML = `<div class="loading"><span class="loading-text">${data.error}</span></div>`; return; }
-    board.innerHTML = `
-      <div class="card has-edge" style="grid-column:1/-1">
-        <div class="card-head">
-          <div class="card-player">
-            <div class="player-avatar">${initials(data.player)}</div>
-            <div class="player-info">
-              <h3>${data.player}</h3>
-              <div class="player-meta">${sport.toUpperCase()} · All Markets</div>
-            </div>
-          </div>
-        </div>
-        <div class="card-stats" style="grid-template-columns:1fr 1fr">
-          ${data.props.map(p => `
-            <div class="stat-item">
-              <span class="label">${p.stat.replace(/_/g,' ')}</span>
-              <span class="value">${p.mean} ± ${p.sd}</span>
-            </div>
-          `).join("")}
-        </div>
-      </div>`;
+    const r = await fetch(`/api/player/${encodeURIComponent(name)}/gamelog?stat=${encodeURIComponent(stat)}`);
+    const d = await r.json();
+    if (d.error) { body.innerHTML = `<div class="empty-state">${d.error}</div>`; return; }
+    body.innerHTML = buildPlayerGraphHtml(d);
   } catch (e) {
-    board.innerHTML = `<div class="loading"><span class="loading-text">Failed to load player</span></div>`;
+    body.innerHTML = `<div class="empty-state">Failed to load graph</div>`;
   }
 }
+
+function ensurePlayerModal() {
+  let modal = document.getElementById("player-graph-modal");
+  if (modal) return modal;
+  modal = document.createElement("div");
+  modal.id = "player-graph-modal";
+  modal.className = "pg-modal hidden";
+  modal.innerHTML = `
+    <div class="pg-overlay"></div>
+    <div class="pg-dialog">
+      <button class="pg-close" aria-label="Close">&times;</button>
+      <div class="pg-stat-tabs">
+        ${NBA_STAT_TABS.map(t =>
+          `<button data-stat="${t.key}" class="pg-stat-tab">${t.label}</button>`
+        ).join("")}
+      </div>
+      <div class="pg-body"></div>
+    </div>`;
+  document.body.appendChild(modal);
+  modal.querySelector(".pg-close").addEventListener("click", closePlayerGraph);
+  modal.querySelector(".pg-overlay").addEventListener("click", closePlayerGraph);
+  modal.addEventListener("click", (e) => {
+    const btn = e.target.closest(".pg-stat-tab");
+    if (!btn) return;
+    playerGraphState.stat = btn.dataset.stat;
+    renderPlayerGraph();
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") closePlayerGraph();
+  });
+  return modal;
+}
+
+function closePlayerGraph() {
+  const modal = document.getElementById("player-graph-modal");
+  if (modal) modal.classList.add("hidden");
+}
+
+function buildPlayerGraphHtml(d) {
+  // Highlight the currently-selected stat tab
+  setTimeout(() => {
+    document.querySelectorAll(".pg-stat-tab").forEach(b =>
+      b.classList.toggle("active", b.dataset.stat === d.stat));
+  }, 0);
+
+  const values = d.games.map(g => g.value).filter(v => v !== null);
+  const maxVal = Math.max(d.line * 1.4, ...values, 1);
+
+  const linePct = (d.line / maxVal) * 100;
+  const avgColor = d.graph_avg >= d.line ? "var(--green)" : "var(--red)";
+  const hitColor = d.hit_rate >= 0.5 ? "var(--green)" : "var(--red)";
+
+  const statLabel = prettyStat(d.stat);
+
+  const bars = d.games.map(g => {
+    const pending = g.value === null;
+    const hit = !pending && g.value > d.line;
+    const barPct = pending ? 100 : Math.max(2, (g.value / maxVal) * 100);
+    const barClass = pending ? "pg-bar-pending" : (hit ? "pg-bar-hit" : "pg-bar-miss");
+    const valLabel = pending ? "?" : (Number.isInteger(g.value) ? g.value : g.value.toFixed(1));
+    const marker = g.is_playoff ? "<span class=\"pg-playoff-dot\" title=\"Playoff game\"></span>" : "";
+    const atSymbol = g.home ? "vs" : "@";
+    return `
+      <div class="pg-bar-col" title="${atSymbol} ${g.opponent_name} · ${g.date}${pending ? ' · not played' : ` · ${valLabel}`}">
+        <div class="pg-bar-wrap">
+          <div class="pg-bar ${barClass}" style="height:${barPct}%">
+            <span class="pg-bar-label">${valLabel}</span>
+          </div>
+        </div>
+        <div class="pg-bar-foot">
+          <div class="pg-bar-opp">${logoEmoji(g.opponent)}<span class="pg-bar-opp-abbr">${g.opponent}</span></div>
+          <div class="pg-bar-date">${g.date}</div>
+          ${marker}
+        </div>
+      </div>`;
+  }).join("");
+
+  const playoffStrip = d.is_playoff_team
+    ? `<div class="pg-playoff-strip">PLAYOFFS · ${d.playoff_series}</div>`
+    : "";
+
+  return `
+    <div class="pg-header">
+      <div class="pg-avatar">${initials(d.player)}</div>
+      <div class="pg-name-wrap">
+        <div class="pg-name">${d.player}</div>
+        <div class="pg-team">${d.team} · ${d.team_name}</div>
+      </div>
+      <div class="pg-line-box">
+        <span class="pg-line-val">${d.line}</span>
+        <span class="pg-line-label">${statLabel} line</span>
+      </div>
+    </div>
+    ${playoffStrip}
+    <div class="pg-summary">
+      <div class="pg-sum-item">
+        <span class="pg-sum-label">SEASON AVG</span>
+        <span class="pg-sum-value" style="color:${d.season_avg >= d.line ? 'var(--green)' : 'var(--red)'}">${d.season_avg}</span>
+      </div>
+      <div class="pg-sum-item">
+        <span class="pg-sum-label">GRAPH AVG</span>
+        <span class="pg-sum-value" style="color:${avgColor}">${d.graph_avg}</span>
+      </div>
+      <div class="pg-sum-item">
+        <span class="pg-sum-label">HIT RATE</span>
+        <span class="pg-sum-value" style="color:${hitColor}">${(d.hit_rate * 100).toFixed(1)}% (${d.hits}/${d.games_played})</span>
+      </div>
+    </div>
+    <div class="pg-chart-wrap">
+      <div class="pg-chart">
+        <div class="pg-line" style="bottom:${linePct}%">
+          <span class="pg-line-pill">${d.line}</span>
+        </div>
+        <div class="pg-bars">${bars}</div>
+      </div>
+    </div>
+    <div class="pg-footer-note">Season 25/26 · ${d.games_played} recent games</div>
+  `;
+}
+
+function prettyStat(key) {
+  const t = NBA_STAT_TABS.find(x => x.key === key);
+  return t ? t.label : key.replace(/_/g, " ");
+}
+
+function logoEmoji(team) {
+  // Tiny colored block stands in for a team logo — browsers won't have NBA
+  // logos bundled, so we use the team-color tint + initials below the bar.
+  const color = TEAM_TINT[team] || "#5a6270";
+  return `<span class="pg-logo" style="background:${color}"></span>`;
+}
+
+const TEAM_TINT = {
+  ATL: "#e03a3e", BOS: "#007a33", BKN: "#111111", CHA: "#1d1160",
+  CHI: "#ce1141", CLE: "#860038", DAL: "#00538c", DEN: "#0e2240",
+  DET: "#c8102e", GSW: "#1d428a", HOU: "#ce1141", IND: "#002d62",
+  LAC: "#c8102e", LAL: "#552583", MEM: "#5d76a9", MIA: "#98002e",
+  MIL: "#00471b", MIN: "#0c2340", NOP: "#0c2340", NYK: "#006bb6",
+  OKC: "#007ac1", ORL: "#0077c0", PHI: "#006bb6", PHX: "#1d1160",
+  POR: "#e03a3e", SAC: "#5a2d81", SAS: "#c4ced4", TOR: "#ce1141",
+  UTA: "#002b5c", WAS: "#002b5c",
+};
 
 /* ===== Parlay builder ===== */
 function addToParlay(idx) {
