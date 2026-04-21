@@ -105,6 +105,62 @@ def player_detail(player_name: str, sport: str = Query("nba", pattern="^(nba|mlb
     return {"player": player_name, "sport": sport, "props": props}
 
 
+# ---------- Player game log (PropsMadness-style graph) ----------
+
+@app.get("/api/player/{player_name}/gamelog")
+def player_gamelog(
+    player_name: str,
+    stat: str = Query("points"),
+    line: Optional[float] = Query(None),
+    n: int = Query(12, ge=4, le=20),
+):
+    """Recent game-by-game log for a player/stat used by the graph view.
+
+    Only NBA is supported for now (playoffs-in-progress). Response includes
+    season avg, graph avg, hit rate vs the line, and per-game bars.
+    """
+    from app.data.gamelog import build_nba_gamelog
+    from app.data.nba_stats import NBA_PLAYERS
+
+    if player_name not in NBA_PLAYERS:
+        return JSONResponse({"error": f"Player not found: {player_name}"}, status_code=404)
+
+    p = NBA_PLAYERS[player_name]
+    if stat not in p and stat not in ("pra", "pr", "pa", "ra"):
+        return JSONResponse({"error": f"Stat '{stat}' not available for {player_name}"}, status_code=400)
+
+    try:
+        return build_nba_gamelog(player_name, stat, line=line, n_games=n)
+    except KeyError as e:
+        return JSONResponse({"error": str(e)}, status_code=404)
+
+
+# ---------- Playoffs ----------
+
+@app.get("/api/playoffs/nba")
+def nba_playoffs():
+    """Current NBA playoff bracket with team rosters."""
+    from app.data.nba_stats import (
+        NBA_PLAYOFF_BRACKET,
+        NBA_PLAYOFF_TEAMS,
+        NBA_TEAM_NAMES,
+        NBA_PLAYERS,
+    )
+
+    teams = {}
+    for team, meta in NBA_PLAYOFF_TEAMS.items():
+        roster = sorted([name for name, p in NBA_PLAYERS.items() if p["team"] == team])
+        teams[team] = {
+            "name": NBA_TEAM_NAMES.get(team, team),
+            "seed": meta["seed"],
+            "conference": meta["conference"],
+            "opp": meta["opp"],
+            "series": meta["series"],
+            "roster": roster,
+        }
+    return {"bracket": NBA_PLAYOFF_BRACKET, "teams": teams}
+
+
 # ---------- Parlay builder ----------
 
 @app.post("/api/parlay")
