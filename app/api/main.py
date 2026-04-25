@@ -18,15 +18,30 @@ _env_path = Path(__file__).resolve().parent.parent / ".env"
 load_dotenv(_env_path)
 
 from fastapi import FastAPI, Query, Body
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.api.pipeline import build_board
-from app.core.math_utils import american_to_decimal
+from app.core.math_utils import american_to_decimal, edge_and_kelly
 
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 
-app = FastAPI(title="Sports Prop Research", version="0.2.0")
+app = FastAPI(
+    title="PropEdge Sports Research API",
+    version="0.3.0",
+    description="AI-powered sports betting research API with Monte Carlo simulations, live odds, player projections, parlay pricing, and backtesting for NBA and MLB props.",
+    servers=[{"url": os.environ.get("PUBLIC_URL", ""), "description": "Production"}] if os.environ.get("PUBLIC_URL") else [],
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["https://chat.openai.com", "https://chatgpt.com", "*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 app.mount("/static", StaticFiles(directory=WEB_DIR), name="static")
 
 
@@ -201,6 +216,140 @@ def live_mlb():
     from app.data.live_scores import LiveScoresFeed
     feed = LiveScoresFeed()
     return {"games": feed.mlb_schedule_today()}
+
+
+# ---------- ChatGPT-friendly endpoints ----------
+
+@app.get("/api/top-picks")
+def top_picks(
+    sport: str = Query("nba", pattern="^(nba|mlb)$"),
+    limit: int = Query(10, ge=1, le=25),
+):
+    """Get the top player prop picks ranked by edge. Perfect for ChatGPT to summarize."""
+    cards = build_board(sport, phase="pregame")
+    plays = [c for c in cards if c.get("edge")]
+    top = plays[:limit]
+    return {
+        "sport": sport,
+        "total_props_scanned": len(cards),
+        "plays_found": len(plays),
+        "top_picks": [
+            {
+                "rank": i + 1,
+                "player": c["player"],
+                "team": c.get("team", ""),
+                "stat": c["stat"],
+                "line": c["line"],
+                "side": c["edge"]["side"],
+                "edge_pct": c["edge"]["edge_pct"],
+                "model_probability": round(c["edge"]["model_prob"] * 100, 1),
+                "ev_per_dollar": round(c["edge"]["ev_per_dollar"], 3),
+                "recommended_stake_pct": c["edge"]["recommended_stake_pct"],
+                "projected_mean": c["projection"]["mean"],
+                "projected_sd": c["projection"]["sd"],
+                "p10": c["simulation"]["p10"],
+                "p50": c["simulation"]["p50"],
+                "p90": c["simulation"]["p90"],
+                "over_odds": c["odds"]["over"],
+                "under_odds": c["odds"]["under"],
+                "book": c.get("book", ""),
+                "trials": c["simulation"]["trials"],
+            }
+            for i, c in enumerate(top)
+        ],
+    }
+
+
+@app.get("/api/player-projection/{player_name}")
+def player_projection(
+    player_name: str,
+    sport: str = Query("nba", pattern="^(nba|mlb)$"),
+    stat: str = Query("points"),
+    line: float = Query(20.5, ge=0.0),
+):
+    """Get a full projection + simulation for a specific player/stat/line. ChatGPT can ask for any combo."""
+    from app.data.providers import get_stats_provider
+    from app.core.simulator import simulate_prop
+
+    stats_provider = get_stats_provider()
+    trials = int(os.environ.get("SIM_TRIALS", "1000"))
+
+    try:
+        ctx = stats_provider.player_context(sport, player_name, stat)
+    except KeyError:
+        return JSONResponse({"error": f"Player or stat not found: {player_name} / {stat}"}, status_code=404)
+
+    if sport == "nba":
+        from app.sports.nba.projection import PlayerContext, project_pregame
+        proj = project_pregame(PlayerContext(player=player_name, stat=stat, **ctx))
+    else:
+        kind = ctx.pop("kind", "hitter")
+        if kind == "hitter":
+            from app.sports.mlb.projection import HitterContext, project_hitter
+            proj = project_hitter(HitterContext(player=player_name, stat=stat, **ctx))
+        else:
+            from app.sports.mlb.projection import PitcherContext, project_pitcher
+            proj = project_pitcher(PitcherContext(player=player_name, stat=stat, **ctx))
+
+    sim = simulate_prop(proj, line, trials=trials)
+    edge_result = edge_and_kelly(
+        model_p_over=sim.p_over,
+        over_odds=-110,
+        under_odds=-110,
+        kelly_fraction_cap=0.25,
+        min_edge_pct=3.0,
+    )
+
+    return {
+        "player": player_name,
+        "sport": sport,
+        "stat": stat,
+        "line": line,
+        "projection": {"mean": proj.mean, "sd": proj.sd, "distribution": proj.dist},
+        "simulation": {
+            "trials": sim.trials,
+            "p_over": round(sim.p_over * 100, 1),
+            "p_under": round(sim.p_under * 100, 1),
+            "p10": sim.p10,
+            "p50": sim.p50,
+            "p90": sim.p90,
+        },
+        "edge": {
+            "side": edge_result.side,
+            "edge_pct": edge_result.edge_pct,
+            "ev_per_dollar": round(edge_result.ev_per_dollar, 3),
+            "recommended_stake_pct": edge_result.recommended_stake_pct,
+        } if edge_result else None,
+    }
+
+
+@app.get("/api/all-players")
+def all_players(sport: str = Query("nba", pattern="^(nba|mlb)$")):
+    """List all available players and their teams."""
+    if sport == "nba":
+        from app.data.nba_stats import NBA_PLAYERS
+        return {"sport": sport, "players": [
+            {"name": name, "team": data["team"]}
+            for name, data in sorted(NBA_PLAYERS.items())
+        ]}
+    else:
+        from app.data.mlb_stats import MLB_HITTERS, MLB_PITCHERS
+        players = []
+        for name, data in sorted(MLB_HITTERS.items()):
+            players.append({"name": name, "team": data.get("team", ""), "type": "hitter"})
+        for name, data in sorted(MLB_PITCHERS.items()):
+            players.append({"name": name, "team": data.get("team", ""), "type": "pitcher"})
+        return {"sport": sport, "players": players}
+
+
+@app.get("/privacy")
+def privacy_policy():
+    """Privacy policy for ChatGPT GPT Actions."""
+    return JSONResponse({
+        "name": "PropEdge Sports Research",
+        "privacy_policy": "This API provides sports betting research data. No personal data is collected or stored. All data is for research and entertainment purposes only. Users must be 21+. Not gambling advice.",
+        "contact": "propedge@research.app",
+    })
 
 
 # ---------- Status ----------
