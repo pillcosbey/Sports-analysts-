@@ -44,7 +44,10 @@ class Pick:
     id: str
     suggested_at: float
     sport: str                       # "nba" | "mlb" | "other"
-    game_id: str = ""
+    game_id: str = ""                # ESPN id (preferred — works with ESPN summary)
+    game_date: str = ""              # YYYY-MM-DD (enables balldontlie fallback)
+    home_team: str = ""              # team abbr (e.g. "MIN") — for fallback lookup
+    away_team: str = ""              # team abbr (e.g. "SAS") — for fallback lookup
     confidence: str = "medium"       # "low" | "medium" | "high"
     legs: list[PickLeg] = field(default_factory=list)
     american_odds: int | None = None      # combined parlay odds
@@ -209,6 +212,9 @@ def make_pick(
     rationale: str = "",
     confidence: str = "medium",
     game_id: str = "",
+    game_date: str = "",
+    home_team: str = "",
+    away_team: str = "",
     source: str = "claude",
 ) -> Pick:
     """Build a Pick — `decimal_odds` is derived from american_odds if not given."""
@@ -218,6 +224,9 @@ def make_pick(
         suggested_at=time.time(),
         sport=sport,
         game_id=game_id,
+        game_date=game_date,
+        home_team=(home_team or "").upper(),
+        away_team=(away_team or "").upper(),
         confidence=confidence,
         legs=legs,
         american_odds=american_odds,

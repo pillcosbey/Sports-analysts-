@@ -429,7 +429,8 @@ function renderPickList(picks) {
     const promoteBtn = p.promoted_to_bet_id
       ? `<span class="promoted-tag">Promoted ✓</span>`
       : `<button class="btn btn-sm btn-primary" onclick="promotePick('${p.id}')">Place this</button>`;
-    const autoGradeBtn = (p.status === "open" && p.game_id)
+    const canAutoGrade = p.status === "open" && (p.game_id || (p.game_date && p.home_team && p.away_team));
+    const autoGradeBtn = canAutoGrade
       ? `<button class="btn btn-sm btn-outline" onclick="autoGradePick('${p.id}')">Auto-grade</button>`
       : "";
     return `
