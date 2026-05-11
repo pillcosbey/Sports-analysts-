@@ -379,6 +379,19 @@ async function loadPicks() {
   }
 }
 
+async function gradeAllPending() {
+  toast("Grading all pending picks...");
+  try {
+    const r = await fetch("/api/picks/grade-pending", { method: "POST" });
+    const d = await r.json();
+    if (d.error) { toast(d.error, "error"); return; }
+    toast(`Graded ${d.graded} pick${d.graded === 1 ? "" : "s"}`, "success");
+    loadPicks();
+  } catch (e) { toast("Grade-all failed", "error"); }
+}
+
+document.getElementById("grade-all-btn").addEventListener("click", gradeAllPending);
+
 function renderPickSummary(s) {
   const roiColor = s.pnl >= 0 ? "var(--green)" : "var(--red)";
   const calColor = Math.abs(s.calibration_gap) < 0.05 ? "var(--green)" : Math.abs(s.calibration_gap) < 0.15 ? "var(--yellow)" : "var(--red)";
@@ -416,6 +429,9 @@ function renderPickList(picks) {
     const promoteBtn = p.promoted_to_bet_id
       ? `<span class="promoted-tag">Promoted ✓</span>`
       : `<button class="btn btn-sm btn-primary" onclick="promotePick('${p.id}')">Place this</button>`;
+    const autoGradeBtn = (p.status === "open" && p.game_id)
+      ? `<button class="btn btn-sm btn-outline" onclick="autoGradePick('${p.id}')">Auto-grade</button>`
+      : "";
     return `
       <div class="bet-card status-${statusClass}">
         <div class="bet-head">
@@ -435,6 +451,7 @@ function renderPickList(picks) {
         </div>
         <div class="bet-actions">
           ${settleBtns}
+          ${autoGradeBtn}
           ${promoteBtn}
           <button class="btn btn-sm btn-danger" onclick="deletePick('${p.id}')">Delete</button>
         </div>
@@ -470,6 +487,25 @@ async function promotePick(id) {
     toast("Placed in My Bets", "success");
     loadPicks();
   } catch (e) { toast("Promote failed", "error"); }
+}
+
+async function autoGradePick(id) {
+  toast("Grading from final box score...");
+  try {
+    const r = await fetch(`/api/picks/${id}/auto-grade`, { method: "POST" });
+    const d = await r.json();
+    if (d.error) { toast(d.error, "error"); return; }
+    if (d.committed) {
+      const legSummary = d.legs.map(l =>
+        `${l.player} ${l.side} ${l.line} ${l.stat}: ${l.actual ?? "?"} → ${l.status.toUpperCase()}`
+      ).join("\n");
+      toast(`Pick ${d.overall.toUpperCase()} · ${d.box_score}`, d.overall === "won" ? "success" : "error");
+      alert(`${d.box_score}\n\n${legSummary}\n\nOverall: ${d.overall.toUpperCase()}`);
+    } else {
+      toast(d.note || "Game not final yet", "default");
+    }
+    loadPicks();
+  } catch (e) { toast("Auto-grade failed", "error"); }
 }
 
 async function deletePick(id) {

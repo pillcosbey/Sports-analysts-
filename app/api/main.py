@@ -536,6 +536,78 @@ def delete_pick(pick_id: str):
     return {"deleted": pick_id}
 
 
+@app.post("/api/picks/{pick_id}/auto-grade")
+def auto_grade_pick(pick_id: str):
+    """Settle a pick against the final ESPN box score for its game_id.
+
+    Returns the per-leg outcome + overall status, and updates the pick
+    in place. If the game isn't final yet, status stays 'open' but
+    we still return the projected grade so the user sees a preview.
+    """
+    from app.data.pick_grader import fetch_and_grade
+    from app.data.pick_log import PickStore
+
+    store = PickStore()
+    pick = store.get(pick_id)
+    if pick is None:
+        return JSONResponse({"error": "Pick not found"}, status_code=404)
+    if not pick.get("game_id"):
+        return JSONResponse({"error": "Pick has no game_id — cannot auto-grade"}, status_code=400)
+
+    grade = fetch_and_grade(pick)
+    if grade is None:
+        return JSONResponse({"error": "Could not fetch box score"}, status_code=502)
+
+    payload = {
+        "pick_id": pick_id,
+        "overall": grade.overall,
+        "game_final": grade.game_final,
+        "box_score": grade.box_score,
+        "legs": [
+            {
+                "description": l.description,
+                "player": l.player,
+                "stat": l.stat,
+                "side": l.side,
+                "line": l.line,
+                "actual": l.actual,
+                "status": l.status,
+                "note": l.note,
+            } for l in grade.legs
+        ],
+    }
+    if grade.game_final:
+        store.update_status(pick_id, grade.overall)
+        payload["committed"] = True
+    else:
+        payload["committed"] = False
+        payload["note"] = "Game not final yet — preview only, status unchanged"
+    return payload
+
+
+@app.post("/api/picks/grade-pending")
+def grade_pending_picks():
+    """Try to auto-grade every open pick with a game_id."""
+    from app.data.pick_grader import fetch_and_grade
+    from app.data.pick_log import PickStore
+
+    store = PickStore()
+    results = []
+    for pick in store.all():
+        if pick.get("status") != "open" or not pick.get("game_id"):
+            continue
+        grade = fetch_and_grade(pick)
+        if grade is None or not grade.game_final:
+            continue
+        store.update_status(pick["id"], grade.overall)
+        results.append({
+            "pick_id": pick["id"],
+            "overall": grade.overall,
+            "box_score": grade.box_score,
+        })
+    return {"graded": len(results), "results": results}
+
+
 # ---------- ChatGPT-friendly endpoints ----------
 
 @app.get("/api/top-picks")
