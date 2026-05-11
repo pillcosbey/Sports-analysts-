@@ -45,6 +45,15 @@ def american_to_decimal(odds: int) -> float:
     return 1.0 + 100.0 / (-odds)
 
 
+def decimal_to_american(decimal_odds: float) -> int:
+    """Decimal odds (>= 1.0) back to American."""
+    if decimal_odds <= 1.0:
+        raise ValueError("Decimal odds must be > 1.0")
+    if decimal_odds >= 2.0:
+        return int(round((decimal_odds - 1.0) * 100.0))
+    return int(round(-100.0 / (decimal_odds - 1.0)))
+
+
 # ---------- Devigging ----------
 
 def devig_two_way(over_odds: int, under_odds: int) -> Tuple[float, float]:

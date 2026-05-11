@@ -8,3 +8,4 @@ app/.env
 app/picks.db
 .pytest_cache/
 .DS_Store
+/data/

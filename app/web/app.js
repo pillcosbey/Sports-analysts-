@@ -1,548 +1,9 @@
-/* ===== PropEdge — Professional Sports Research App ===== */
+/* ===== PropEdge Halftime Parlay Analyzer ===== */
 
-const board = document.getElementById("board");
-const buttons = document.querySelectorAll("#main-nav button");
-const parlayLegs = [];
-let allCards = [];
 let currentSport = "nba";
-let currentPhase = "pregame";
-
-/* ===== Toast system ===== */
-function toast(msg, type = "default") {
-  const el = document.createElement("div");
-  el.className = `toast ${type}`;
-  el.textContent = msg;
-  document.getElementById("toast-container").appendChild(el);
-  setTimeout(() => { el.style.opacity = "0"; setTimeout(() => el.remove(), 300); }, 2500);
-}
-
-/* ===== Board loading ===== */
-async function load(sport, phase) {
-  currentSport = sport;
-  currentPhase = phase;
-  showPanel("board");
-  const label = `${sport.toUpperCase()} ${phase === "live" ? "Live" : "Pregame"} Props`;
-  document.getElementById("board-title").textContent = label;
-  board.innerHTML = `<div class="loading"><div class="spinner"></div><span class="loading-text">Loading ${label}...</span></div>`;
-  try {
-    const r = await fetch(`/api/board?sport=${sport}&phase=${phase}`);
-    const data = await r.json();
-    if (data.gated) {
-      allCards = [];
-      document.getElementById("card-count").textContent = "";
-      board.innerHTML = `
-        <div class="gated-state">
-          <div class="gated-icon">&#9202;</div>
-          <div class="gated-title">${label} is gated</div>
-          <div class="gated-msg">${data.message || "Not available right now."}</div>
-        </div>`;
-      return;
-    }
-    if (data.error) {
-      allCards = [];
-      board.innerHTML = `<div class="loading"><span class="loading-text">${data.error}</span></div>`;
-      return;
-    }
-    allCards = data.cards || [];
-    applyFilters();
-  } catch (e) {
-    board.innerHTML = `<div class="loading"><span class="loading-text">Failed to load. Tap to retry.</span></div>`;
-    board.querySelector(".loading").onclick = () => load(sport, phase);
-  }
-}
-
-/* ===== NBA Live availability polling =====
- * NBA Live research is only offered during halftime of a playoff game.
- * The tab stays hidden until the server reports a qualifying game.
- */
-async function checkNbaLiveAvailability() {
-  try {
-    const r = await fetch("/api/nba/live_availability");
-    const d = await r.json();
-    const btn = document.getElementById("nav-nba-live");
-    if (!btn) return;
-    btn.classList.toggle("hidden", !d.available);
-    if (d.available && d.games && d.games.length) {
-      const g = d.games[0];
-      btn.title = `${g.away} @ ${g.home} — ${g.series} · Halftime`;
-    } else {
-      btn.title = "NBA Live opens at halftime of playoff games";
-    }
-  } catch (_) {
-    // leave hidden on network failure
-  }
-}
-
-/* ===== Filtering & sorting ===== */
-function applyFilters() {
-  const minEdge = parseFloat(document.getElementById("filter-edge").value) || 0;
-  const show = document.getElementById("filter-show").value;
-  const sort = document.getElementById("filter-sort").value;
-  let cards = [...allCards];
-  if (show === "plays") cards = cards.filter(c => c.edge);
-  if (minEdge > 0) cards = cards.filter(c => c.edge && c.edge.edge_pct >= minEdge);
-  if (sort === "prob") cards.sort((a, b) => (b.simulation.p_over) - (a.simulation.p_over));
-  else if (sort === "name") cards.sort((a, b) => a.player.localeCompare(b.player));
-  else cards.sort((a, b) => ((b.edge?.edge_pct) || -999) - ((a.edge?.edge_pct) || -999));
-  document.getElementById("card-count").textContent = `${cards.length} props`;
-  renderCards(cards);
-}
-
-function initials(name) {
-  return name.split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase();
-}
-
-function edgeLevel(pct) {
-  if (pct >= 8) return "high";
-  if (pct >= 4) return "mid";
-  return "low";
-}
-
-/* ===== Card rendering ===== */
-function renderCards(cards) {
-  if (!cards.length) {
-    board.innerHTML = `<div class="loading"><span class="loading-text">No props match your filters</span></div>`;
-    return;
-  }
-  board.innerHTML = cards.map((c, i) => {
-    const hasEdge = !!c.edge;
-    const pOver = (c.simulation.p_over * 100);
-    const pUnder = (c.simulation.p_under * 100);
-    const fairOver = (c.fair.p_over * 100);
-    const badge = hasEdge
-      ? (c.edge.edge_pct >= 5 ? "play" : "lean")
-      : "pass";
-    const badgeText = hasEdge
-      ? (c.edge.edge_pct >= 5 ? "PLAY" : "LEAN")
-      : "PASS";
-
-    return `
-    <div class="card ${hasEdge ? 'has-edge' : 'no-edge'}" data-idx="${i}">
-      <div class="card-head">
-        <div class="card-player">
-          <div class="player-avatar">${initials(c.player)}</div>
-          <div class="player-info">
-            <h3>${c.player}</h3>
-            <div class="player-meta">${c.team || ''} · ${c.sport.toUpperCase()} · ${c.book}</div>
-          </div>
-        </div>
-        <span class="card-badge badge-${badge}">${badgeText}</span>
-      </div>
-
-      <div class="stat-line">
-        <span class="stat-name">${c.stat.replace(/_/g,' ')}</span>
-        <span class="stat-line-val">${c.line}</span>
-        <div class="stat-odds">
-          <span>O ${c.odds.over > 0 ? '+' : ''}${c.odds.over}</span>
-          <span>U ${c.odds.under > 0 ? '+' : ''}${c.odds.under}</span>
-        </div>
-      </div>
-
-      <div class="prob-row">
-        <span class="prob-label">Model</span>
-        <div class="prob-bar-track"><div class="prob-bar-fill over" style="width:${pOver}%"></div></div>
-        <span class="prob-val">${pOver.toFixed(1)}%</span>
-      </div>
-      <div class="prob-row">
-        <span class="prob-label">Fair Line</span>
-        <div class="prob-bar-track"><div class="prob-bar-fill fair" style="width:${fairOver}%"></div></div>
-        <span class="prob-val">${fairOver.toFixed(1)}%</span>
-      </div>
-
-      <div class="card-stats">
-        <div class="stat-item"><span class="label">Projected</span><span class="value">${c.projection.mean} ± ${c.projection.sd}</span></div>
-        <div class="stat-item"><span class="label">Book Hold</span><span class="value">${c.odds.hold_pct}%</span></div>
-        <div class="stat-item"><span class="label">p10/p50/p90</span><span class="value">${c.simulation.p10}/${c.simulation.p50}/${c.simulation.p90}</span></div>
-        <div class="stat-item"><span class="label">Trials</span><span class="value">${c.simulation.trials.toLocaleString()}</span></div>
-      </div>
-
-      ${hasEdge ? `
-      <div class="edge-strip positive">
-        <div class="edge-info">
-          <span class="edge-pct ${edgeLevel(c.edge.edge_pct)}">${c.edge.edge_pct}%</span>
-          <span class="edge-label">${c.edge.side} edge</span>
-        </div>
-        <span class="edge-stake">Stake ${c.edge.recommended_stake_pct}%</span>
-      </div>
-      ` : `
-      <div class="edge-strip negative">
-        <span class="edge-label">No actionable edge</span>
-      </div>
-      `}
-
-      <div class="card-actions">
-        ${hasEdge ? `<button class="btn btn-sm btn-parlay" onclick="addToParlay(${i})">+ Parlay</button>` : ''}
-      </div>
-    </div>`;
-  }).join("");
-}
-
-/* ===== Filters ===== */
-document.getElementById("filter-edge").addEventListener("input", applyFilters);
-document.getElementById("filter-show").addEventListener("change", applyFilters);
-document.getElementById("filter-sort").addEventListener("change", applyFilters);
-
-/* ===== Search ===== */
-const searchInput = document.getElementById("search-input");
-const searchResults = document.getElementById("search-results");
-let searchTimeout;
-
-searchInput.addEventListener("input", () => {
-  clearTimeout(searchTimeout);
-  const q = searchInput.value.trim();
-  if (q.length < 2) { searchResults.style.display = "none"; return; }
-  searchTimeout = setTimeout(async () => {
-    const sport = document.getElementById("search-sport").value;
-    const r = await fetch(`/api/search?q=${encodeURIComponent(q)}&sport=${sport}`);
-    const data = await r.json();
-    if (!data.results.length) { searchResults.style.display = "none"; return; }
-    searchResults.innerHTML = data.results.map(name =>
-      `<div class="sr-item" onclick="loadPlayer('${name.replace(/'/g,"\\'")}','${sport}')">${name}</div>`
-    ).join("");
-    searchResults.style.display = "block";
-  }, 300);
-});
-
-document.addEventListener("click", e => {
-  if (!e.target.closest("#search-wrap")) searchResults.style.display = "none";
-});
-
-/* ===== Player graph modal (PropsMadness-style) ===== */
-const NBA_STAT_TABS = [
-  {key: "points",      label: "Points"},
-  {key: "assists",     label: "Assists"},
-  {key: "rebounds",    label: "Rebounds"},
-  {key: "threes_made", label: "Threes"},
-  {key: "pa",          label: "Pts+Ast"},
-  {key: "pr",          label: "Pts+Reb"},
-  {key: "pra",         label: "P+R+A"},
-  {key: "steals",      label: "Steals"},
-  {key: "blocks",      label: "Blocks"},
-];
-
-let playerGraphState = {name: null, sport: null, stat: "points", tab: "graph"};
-
-async function loadPlayer(name, sport) {
-  searchResults.style.display = "none";
-  searchInput.value = "";
-  if (sport !== "nba") {
-    toast("Graph view is NBA-only for now", "error");
-    return;
-  }
-  playerGraphState = {name, sport, stat: "points", tab: "graph"};
-  renderPlayerGraph();
-}
-
-async function renderPlayerGraph() {
-  const {name, stat, tab} = playerGraphState;
-  const modal = ensurePlayerModal();
-  const body = modal.querySelector(".pg-body");
-  body.innerHTML = `<div class="loading"><div class="spinner"></div><span class="loading-text">Loading ${name}...</span></div>`;
-  modal.classList.remove("hidden");
-
-  try {
-    // Every tab needs the gamelog for the shared header (name/team/line) — fetch once.
-    const gR = await fetch(`/api/player/${encodeURIComponent(name)}/gamelog?stat=${encodeURIComponent(stat)}`);
-    const g = await gR.json();
-    if (g.error) { body.innerHTML = `<div class="empty-state">${g.error}</div>`; return; }
-
-    let contentHtml = "";
-    if (tab === "shooting") {
-      const sR = await fetch(`/api/player/${encodeURIComponent(name)}/shooting`);
-      const s = await sR.json();
-      contentHtml = s.error ? `<div class="empty-state">${s.error}</div>` : buildShootingHtml(s);
-    } else if (tab === "similar") {
-      const sR = await fetch(`/api/player/${encodeURIComponent(name)}/similar`);
-      const s = await sR.json();
-      contentHtml = s.error ? `<div class="empty-state">${s.error}</div>` : buildSimilarHtml(s);
-    } else if (tab === "types") {
-      const tR = await fetch(`/api/player/${encodeURIComponent(name)}/types`);
-      const t = await tR.json();
-      contentHtml = t.error ? `<div class="empty-state">${t.error}</div>` : buildTypesHtml(t);
-    } else {
-      contentHtml = buildGraphContentHtml(g);
-    }
-
-    body.innerHTML = buildPlayerGraphHtml(g, contentHtml);
-  } catch (e) {
-    body.innerHTML = `<div class="empty-state">Failed to load player</div>`;
-  }
-}
-
-function ensurePlayerModal() {
-  let modal = document.getElementById("player-graph-modal");
-  if (modal) return modal;
-  modal = document.createElement("div");
-  modal.id = "player-graph-modal";
-  modal.className = "pg-modal hidden";
-  modal.innerHTML = `
-    <div class="pg-overlay"></div>
-    <div class="pg-dialog">
-      <button class="pg-close" aria-label="Close">&times;</button>
-      <div class="pg-stat-tabs">
-        ${NBA_STAT_TABS.map(t =>
-          `<button data-stat="${t.key}" class="pg-stat-tab">${t.label}</button>`
-        ).join("")}
-      </div>
-      <div class="pg-body"></div>
-    </div>`;
-  document.body.appendChild(modal);
-  modal.querySelector(".pg-close").addEventListener("click", closePlayerGraph);
-  modal.querySelector(".pg-overlay").addEventListener("click", closePlayerGraph);
-  modal.addEventListener("click", (e) => {
-    const statBtn = e.target.closest(".pg-stat-tab");
-    if (statBtn) {
-      playerGraphState.stat = statBtn.dataset.stat;
-      renderPlayerGraph();
-      return;
-    }
-    const subBtn = e.target.closest(".pg-subtab");
-    if (subBtn && !subBtn.disabled) {
-      playerGraphState.tab = subBtn.dataset.tab;
-      renderPlayerGraph();
-    }
-  });
-  document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") closePlayerGraph();
-  });
-  return modal;
-}
-
-function closePlayerGraph() {
-  const modal = document.getElementById("player-graph-modal");
-  if (modal) modal.classList.add("hidden");
-}
-
-const PG_SUBTABS = [
-  {key: "graph",    label: "Graph"},
-  {key: "shooting", label: "Shooting"},
-  {key: "similar",  label: "Similar"},
-  {key: "types",    label: "Types"},
-];
-
-async function loadTeammates(player, stat) {
-  try {
-    const r = await fetch(`/api/player/${encodeURIComponent(player)}/teammates?stat=${encodeURIComponent(stat)}&n=6`);
-    const d = await r.json();
-    const host = document.getElementById("pg-suggested");
-    if (!host || !d.teammates || !d.teammates.length) return;
-    host.innerHTML = d.teammates.map(m => `
-      <button class="pg-sugg-item" onclick="loadPlayer('${m.name.replace(/'/g,"\\'")}','nba')">
-        <span class="pg-sugg-avatar">${initials(m.name)}</span>
-        <span class="pg-sugg-name">${m.name}</span>
-        <span class="pg-sugg-mean">${m.mean}</span>
-      </button>
-    `).join("");
-  } catch (_) { /* non-fatal */ }
-}
-
-/* ===== Sub-tab (Graph / Shooting / Similar / Types) content renderers ===== */
-
-function buildShootingHtml(s) {
-  const zones = s.zones.map(z => `
-    <div class="pg-zone">
-      <div class="pg-zone-head">
-        <span class="pg-zone-name">${z.name}</span>
-        <span class="pg-zone-pct">${z.pct}%</span>
-      </div>
-      <div class="pg-zone-bar">
-        <div class="pg-zone-fill" style="width:${z.share}%"></div>
-      </div>
-      <div class="pg-zone-share">${z.share}% of shots</div>
-    </div>
-  `).join("");
-  return `
-    <div class="pg-shoot-grid">
-      <div class="pg-shoot-stat"><span class="lbl">FG</span><span class="val">${s.fg.made}/${s.fg.att}</span><span class="pct">${s.fg.pct}%</span></div>
-      <div class="pg-shoot-stat"><span class="lbl">3PT</span><span class="val">${s.three.made}/${s.three.att}</span><span class="pct">${s.three.pct}%</span></div>
-      <div class="pg-shoot-stat"><span class="lbl">FT</span><span class="val">${s.ft.made}/${s.ft.att}</span><span class="pct">${s.ft.pct}%</span></div>
-      <div class="pg-shoot-stat"><span class="lbl">TS%</span><span class="val">${s.ts_pct}%</span><span class="pct">eFG ${s.efg_pct}%</span></div>
-    </div>
-    <div class="pg-section-title">Shot Distribution</div>
-    <div class="pg-zones">${zones}</div>
-    <div class="pg-footer-note">Per-game averages · ${s.minutes} min</div>
-  `;
-}
-
-function buildSimilarHtml(d) {
-  if (!d.similar || !d.similar.length) {
-    return `<div class="empty-state">No similar players found</div>`;
-  }
-  const rows = d.similar.map(s => {
-    const tint = TEAM_TINT[s.team] || "#5a6270";
-    return `
-      <button class="pg-similar-row" onclick="loadPlayer('${s.name.replace(/'/g,"\\'")}','nba')">
-        <span class="pg-sim-avatar" style="background:${tint}">${initials(s.name)}</span>
-        <span class="pg-sim-info">
-          <span class="pg-sim-name">${s.name}</span>
-          <span class="pg-sim-team">${s.team} · ${s.team_name}</span>
-        </span>
-        <span class="pg-sim-line"><span>${s.points}</span><span class="pg-sim-sub">PTS</span></span>
-        <span class="pg-sim-line"><span>${s.rebounds}</span><span class="pg-sim-sub">REB</span></span>
-        <span class="pg-sim-line"><span>${s.assists}</span><span class="pg-sim-sub">AST</span></span>
-        <span class="pg-sim-match">${s.similarity}%</span>
-      </button>`;
-  }).join("");
-  return `
-    <div class="pg-section-title">Most similar players by stat profile</div>
-    <div class="pg-similar-list">${rows}</div>
-  `;
-}
-
-function buildTypesHtml(d) {
-  if (!d.types || !d.types.length) {
-    return `<div class="empty-state">No prop types available</div>`;
-  }
-  const rows = d.types.map(t => {
-    const hitColor = t.hit_rate >= 0.6 ? "var(--green)" : t.hit_rate >= 0.4 ? "var(--yellow)" : "var(--red)";
-    const hitPct = (t.hit_rate * 100).toFixed(0);
-    return `
-      <button class="pg-type-row" onclick="switchToStat('${t.stat}')">
-        <span class="pg-type-name">${prettyStat(t.stat)}</span>
-        <span class="pg-type-line">${t.line}</span>
-        <span class="pg-type-avg">avg ${t.graph_avg}</span>
-        <span class="pg-type-hit" style="color:${hitColor}">${hitPct}% (${t.hits}/${t.games})</span>
-        <span class="pg-type-hitbar"><span class="pg-type-hitfill" style="width:${hitPct}%;background:${hitColor}"></span></span>
-      </button>`;
-  }).join("");
-  return `
-    <div class="pg-section-title">Hit rate by prop type (L12)</div>
-    <div class="pg-types-list">${rows}</div>
-  `;
-}
-
-function switchToStat(stat) {
-  // The Types tab exposes rows you can click to jump to that stat's Graph.
-  playerGraphState.stat = stat;
-  playerGraphState.tab = "graph";
-  renderPlayerGraph();
-}
-
-function buildGraphContentHtml(d) {
-  const values = d.games.map(g => g.value).filter(v => v !== null);
-  const maxVal = Math.max(d.line * 1.4, ...values, 1);
-  const linePct = (d.line / maxVal) * 100;
-  const avgColor = d.graph_avg >= d.line ? "var(--green)" : "var(--red)";
-  const hitColor = d.hit_rate >= 0.5 ? "var(--green)" : "var(--red)";
-
-  const bars = d.games.map(g => {
-    const pending = g.value === null;
-    const hit = !pending && g.value > d.line;
-    const barPct = pending ? 100 : Math.max(2, (g.value / maxVal) * 100);
-    const barClass = pending ? "pg-bar-pending" : (hit ? "pg-bar-hit" : "pg-bar-miss");
-    const valLabel = pending ? "?" : (Number.isInteger(g.value) ? g.value : g.value.toFixed(1));
-    const marker = g.is_playoff ? "<span class=\"pg-playoff-dot\" title=\"Playoff game\"></span>" : "";
-    const atSymbol = g.home ? "vs" : "@";
-    return `
-      <div class="pg-bar-col" title="${atSymbol} ${g.opponent_name} · ${g.date}${pending ? ' · not played' : ` · ${valLabel}`}">
-        <div class="pg-bar-wrap">
-          <div class="pg-bar ${barClass}" style="height:${barPct}%">
-            <span class="pg-bar-label">${valLabel}</span>
-          </div>
-        </div>
-        <div class="pg-bar-foot">
-          <div class="pg-bar-opp">${logoEmoji(g.opponent)}<span class="pg-bar-opp-abbr">${g.opponent}</span></div>
-          <div class="pg-bar-date">${g.date}</div>
-          ${marker}
-        </div>
-      </div>`;
-  }).join("");
-
-  return `
-    <div class="pg-summary">
-      <div class="pg-sum-item">
-        <span class="pg-sum-label">SEASON AVG</span>
-        <span class="pg-sum-value" style="color:${d.season_avg >= d.line ? 'var(--green)' : 'var(--red)'}">${d.season_avg}</span>
-      </div>
-      <div class="pg-sum-item">
-        <span class="pg-sum-label">GRAPH AVG</span>
-        <span class="pg-sum-value" style="color:${avgColor}">${d.graph_avg}</span>
-      </div>
-      <div class="pg-sum-item">
-        <span class="pg-sum-label">HIT RATE</span>
-        <span class="pg-sum-value" style="color:${hitColor}">${(d.hit_rate * 100).toFixed(1)}% (${d.hits}/${d.games_played})</span>
-      </div>
-    </div>
-    <div class="pg-chart-wrap">
-      <div class="pg-chart">
-        <div class="pg-line" style="bottom:${linePct}%">
-          <span class="pg-line-pill">${d.line}</span>
-        </div>
-        <div class="pg-bars">${bars}</div>
-      </div>
-    </div>
-    <div class="pg-chip-row">
-      <div class="pg-chip">
-        <span class="pg-chip-label">LINE</span>
-        <span class="pg-chip-val">${d.line}</span>
-      </div>
-      <div class="pg-chip">
-        <span class="pg-chip-label">L${d.games_played}</span>
-        <span class="pg-chip-val">${d.graph_avg}</span>
-      </div>
-      <div class="pg-chip">
-        <span class="pg-chip-label">HIT%</span>
-        <span class="pg-chip-val" style="color:${hitColor}">${(d.hit_rate * 100).toFixed(0)}%</span>
-      </div>
-    </div>
-  `;
-}
-
-function buildPlayerGraphHtml(d, contentHtml) {
-  // Highlight current stat tab, current sub-tab, and kick off teammate fetch.
-  const activeTab = playerGraphState.tab || "graph";
-  setTimeout(() => {
-    document.querySelectorAll(".pg-stat-tab").forEach(b =>
-      b.classList.toggle("active", b.dataset.stat === d.stat));
-    document.querySelectorAll(".pg-subtab").forEach(b =>
-      b.classList.toggle("active", b.dataset.tab === activeTab));
-    loadTeammates(d.player, d.stat);
-  }, 0);
-
-  const statLabel = prettyStat(d.stat);
-
-  const subtabs = PG_SUBTABS.map(t =>
-    `<button data-tab="${t.key}" class="pg-subtab ${t.key === activeTab ? 'active' : ''}">${t.label}</button>`
-  ).join("");
-
-  const playoffStrip = d.is_playoff_team
-    ? `<div class="pg-playoff-strip">PLAYOFFS · ${d.playoff_series}</div>`
-    : "";
-
-  return `
-    <div class="pg-header">
-      <div class="pg-avatar" style="background:${TEAM_TINT[d.team] || 'var(--bg-card)'}">${initials(d.player)}</div>
-      <div class="pg-name-wrap">
-        <div class="pg-name">${d.player}</div>
-        <div class="pg-team">${d.team} · ${d.team_name}</div>
-      </div>
-      <div class="pg-line-box">
-        <span class="pg-line-val">${d.line}</span>
-        <span class="pg-line-label">${statLabel} line</span>
-      </div>
-    </div>
-    ${playoffStrip}
-    <div class="pg-subtabs">${subtabs}</div>
-    <div class="pg-tab-content">${contentHtml}</div>
-    <div class="pg-suggested-wrap">
-      <div class="pg-suggested-title">Suggested · ${d.team} teammates</div>
-      <div id="pg-suggested" class="pg-suggested"></div>
-    </div>
-    <div class="pg-footer-note">Season 25/26 · ${d.games_played} recent games</div>
-  `;
-}
-
-function prettyStat(key) {
-  const t = NBA_STAT_TABS.find(x => x.key === key);
-  return t ? t.label : key.replace(/_/g, " ");
-}
-
-function logoEmoji(team) {
-  // Tiny colored block stands in for a team logo — browsers won't have NBA
-  // logos bundled, so we use the team-color tint + initials below the bar.
-  const color = TEAM_TINT[team] || "#5a6270";
-  return `<span class="pg-logo" style="background:${color}"></span>`;
-}
+let currentGameId = null;
+let currentLegs = [];           // populated from /api/halftime/{sport}/{id}
+let pickedLegIndexes = new Set();
 
 const TEAM_TINT = {
   ATL: "#e03a3e", BOS: "#007a33", BKN: "#111111", CHA: "#1d1160",
@@ -555,215 +16,504 @@ const TEAM_TINT = {
   UTA: "#002b5c", WAS: "#002b5c",
 };
 
-/* ===== Parlay builder ===== */
-function addToParlay(idx) {
-  const c = allCards[idx];
-  if (!c.edge) return;
-  if (parlayLegs.some(l => l.player === c.player && l.stat === c.stat)) {
-    toast("Already in parlay", "error");
-    return;
-  }
-  parlayLegs.push({
-    player: c.player, stat: c.stat, side: c.edge.side,
-    model_prob: c.edge.model_prob, game_id: c.player,
-    sport: c.sport, odds: c.edge.side === "OVER" ? c.odds.over : c.odds.under,
-  });
-  updateParlayCount();
-  toast(`${c.player} ${c.stat} ${c.edge.side} added`, "success");
+/* ===== Toast ===== */
+function toast(msg, type = "default") {
+  const el = document.createElement("div");
+  el.className = `toast ${type}`;
+  el.textContent = msg;
+  document.getElementById("toast-container").appendChild(el);
+  setTimeout(() => { el.style.opacity = "0"; setTimeout(() => el.remove(), 300); }, 2500);
 }
 
-function updateParlayCount() {
-  document.getElementById("parlay-count").textContent = `${parlayLegs.length} leg${parlayLegs.length !== 1 ? 's' : ''}`;
+function initials(name) {
+  return (name || "?").split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase();
 }
 
-function renderParlayLegs() {
-  const el = document.getElementById("parlay-legs");
-  if (!parlayLegs.length) {
-    el.innerHTML = '<div class="empty-state">Add picks from the board to build a parlay</div>';
-    return;
-  }
-  el.innerHTML = parlayLegs.map((l, i) => `
-    <div class="parlay-leg">
-      <div class="leg-info">
-        <div class="leg-player">${l.player}</div>
-        <div class="leg-detail">${l.stat.replace(/_/g,' ')} · ${l.side} · ${l.sport.toUpperCase()}</div>
-      </div>
-      <span class="leg-prob" style="color:var(--accent)">${(l.model_prob*100).toFixed(1)}%</span>
-      <button class="btn btn-sm btn-danger" onclick="removeLeg(${i})">Remove</button>
-    </div>
-  `).join("");
-}
-
-function removeLeg(i) {
-  parlayLegs.splice(i, 1);
-  renderParlayLegs();
-  updateParlayCount();
-  toast("Leg removed");
-}
-
-document.getElementById("clear-parlay").addEventListener("click", () => {
-  parlayLegs.length = 0;
-  renderParlayLegs();
-  updateParlayCount();
-  document.getElementById("parlay-result").innerHTML = "";
-  toast("Parlay cleared");
-});
-
-document.getElementById("price-parlay").addEventListener("click", async () => {
-  if (parlayLegs.length < 2) { toast("Add at least 2 legs", "error"); return; }
-  const btn = document.getElementById("price-parlay");
-  btn.textContent = "Pricing...";
-  btn.disabled = true;
-  try {
-    const r = await fetch("/api/parlay", {
-      method: "POST",
-      headers: {"Content-Type": "application/json"},
-      body: JSON.stringify(parlayLegs),
-    });
-    const data = await r.json();
-    if (data.error) { toast(data.error, "error"); return; }
-    const positive = data.is_positive_ev;
-    document.getElementById("parlay-result").innerHTML = `
-      <div class="parlay-verdict ${positive ? 'positive' : 'negative'}">
-        ${positive ? '+EV PLAY' : 'NEGATIVE EV'}
-      </div>
-      <div class="parlay-grid">
-        <div class="parlay-stat">
-          <span class="label">Naive Probability</span>
-          <span class="value">${(data.naive_prob*100).toFixed(2)}%</span>
-        </div>
-        <div class="parlay-stat">
-          <span class="label">Correlated Probability</span>
-          <span class="value">${(data.correlated_prob*100).toFixed(2)}%</span>
-        </div>
-        <div class="parlay-stat">
-          <span class="label">Combined Odds</span>
-          <span class="value">${data.combined_odds.toFixed(2)}x</span>
-        </div>
-        <div class="parlay-stat">
-          <span class="label">Correlation Adj.</span>
-          <span class="value">${(data.correlation_penalty*100).toFixed(1)}%</span>
-        </div>
-        <div class="parlay-stat">
-          <span class="label">EV per $1</span>
-          <span class="value" style="color:${positive ? 'var(--green)' : 'var(--red)'}">${data.ev_per_dollar > 0 ? '+' : ''}$${data.ev_per_dollar.toFixed(3)}</span>
-        </div>
-        <div class="parlay-stat">
-          <span class="label">Legs</span>
-          <span class="value">${data.legs}</span>
-        </div>
-      </div>`;
-  } catch (e) {
-    toast("Pricing failed", "error");
-  } finally {
-    btn.textContent = "Price Parlay";
-    btn.disabled = false;
-  }
-});
-
-/* ===== Backtest ===== */
-document.getElementById("run-backtest").addEventListener("click", async () => {
-  const n = document.getElementById("bt-games").value;
-  const edge = document.getElementById("bt-edge").value;
-  const el = document.getElementById("backtest-result");
-  const btn = document.getElementById("run-backtest");
-  btn.textContent = "Running...";
-  btn.disabled = true;
-  el.innerHTML = `<div class="loading"><div class="spinner"></div><span class="loading-text">Simulating ${n} games...</span></div>`;
-  try {
-    const r = await fetch(`/api/backtest?n_games=${n}&min_edge=${edge}`);
-    const d = await r.json();
-    const roiColor = d.flat_roi_pct >= 0 ? "var(--green)" : "var(--red)";
-    const kellyColor = d.kelly_roi_pct >= 0 ? "var(--green)" : "var(--red)";
-    el.innerHTML = `
-      <div class="bt-summary">
-        <div class="bt-stat"><div class="val">${d.total_games}</div><div class="lbl">Games</div></div>
-        <div class="bt-stat"><div class="val">${d.picks_made}</div><div class="lbl">Picks</div></div>
-        <div class="bt-stat"><div class="val">${d.wins}W-${d.losses}L</div><div class="lbl">Record</div></div>
-        <div class="bt-stat"><div class="val">${(d.win_rate*100).toFixed(1)}%</div><div class="lbl">Win Rate</div></div>
-        <div class="bt-stat"><div class="val" style="color:${roiColor}">${d.flat_roi_pct > 0 ? '+' : ''}${d.flat_roi_pct}%</div><div class="lbl">Flat ROI</div></div>
-        <div class="bt-stat"><div class="val" style="color:${kellyColor}">${d.kelly_roi_pct > 0 ? '+' : ''}${d.kelly_roi_pct}%</div><div class="lbl">Kelly ROI</div></div>
-      </div>
-      <div class="bt-section-title">By Sport</div>
-      <div class="bt-rows">${Object.entries(d.by_sport).map(([k,v]) =>
-        `<div class="bt-row"><span class="bt-key">${k.toUpperCase()}</span><span class="bt-val">${v.w}W-${v.l}L (${(v.wr*100).toFixed(0)}%) · $${v.pnl.toFixed(0)}</span></div>`
-      ).join("")}</div>
-      <div class="bt-section-title">By Stat</div>
-      <div class="bt-rows">${Object.entries(d.by_stat).map(([k,v]) =>
-        `<div class="bt-row"><span class="bt-key">${k.replace(/_/g,' ')}</span><span class="bt-val">${v.w}W-${v.l}L (${(v.wr*100).toFixed(0)}%)</span></div>`
-      ).join("")}</div>`;
-  } catch (e) {
-    el.innerHTML = `<div class="loading"><span class="loading-text">Backtest failed</span></div>`;
-  } finally {
-    btn.textContent = "Run Backtest";
-    btn.disabled = false;
-  }
-});
-
-/* ===== Live scores ===== */
-let scoresInterval;
-async function loadScores() {
-  const el = document.getElementById("scores-content");
-  el.innerHTML = `<div class="loading"><div class="spinner"></div><span class="loading-text">Loading scores...</span></div>`;
-  try {
-    const [nba, mlb] = await Promise.all([
-      fetch("/api/live/nba").then(r => r.json()).catch(() => ({games:[]})),
-      fetch("/api/live/mlb").then(r => r.json()).catch(() => ({games:[]})),
-    ]);
-    let html = '<div class="scores-section"><h3>&#127936; NBA</h3>';
-    if (!nba.games.length) html += '<div class="empty-state">No NBA games today</div>';
-    for (const g of nba.games) {
-      const st = g.is_final ? "FINAL" : g.is_halftime ? "HALF" : `Q${g.quarter} ${g.clock}`;
-      const cls = g.is_final ? "final" : (!g.is_final && !g.is_halftime ? "live" : "");
-      html += `<div class="score-card"><span class="score-teams">${g.away} @ ${g.home}</span><span class="score-val">${g.score}</span><span class="score-status ${cls}">${st}</span></div>`;
-    }
-    html += '</div><div class="scores-section"><h3>&#9918; MLB</h3>';
-    if (!mlb.games.length) html += '<div class="empty-state">No MLB games today</div>';
-    for (const g of mlb.games) {
-      html += `<div class="score-card"><span class="score-teams">${g.away || '?'} @ ${g.home || '?'}</span><span class="score-status">${g.status}</span></div>`;
-    }
-    html += '</div>';
-    el.innerHTML = html;
-  } catch (e) {
-    el.innerHTML = `<div class="loading"><span class="loading-text">Failed to load scores</span></div>`;
-  }
+function prettyStat(s) {
+  const map = {
+    points: "Points", rebounds: "Rebounds", assists: "Assists",
+    threes_made: "Threes", steals: "Steals", blocks: "Blocks",
+    pra: "P+R+A", pr: "Pts+Reb", pa: "Pts+Ast", ra: "Reb+Ast",
+  };
+  return map[s] || (s || "").replace(/_/g, " ");
 }
 
 /* ===== Panel switching ===== */
 function showPanel(name) {
-  board.classList.toggle("hidden", name !== "board");
-  document.getElementById("toolbar").classList.toggle("hidden", name !== "board");
-  document.getElementById("parlay-panel").classList.toggle("hidden", name !== "parlay");
-  document.getElementById("backtest-panel").classList.toggle("hidden", name !== "backtest");
-  document.getElementById("scores-panel").classList.toggle("hidden", name !== "scores");
-  clearInterval(scoresInterval);
-  if (name === "scores") scoresInterval = setInterval(loadScores, 60000);
+  document.getElementById("halftime-panel").classList.toggle("hidden", name !== "halftime");
+  document.getElementById("bets-panel").classList.toggle("hidden", name !== "bets");
+  document.querySelectorAll("#main-nav button").forEach(b =>
+    b.classList.toggle("active", b.dataset.tab === name));
+  if (name === "halftime") loadGames();
+  if (name === "bets") loadBets();
 }
 
-buttons.forEach(b => b.addEventListener("click", () => {
-  buttons.forEach(x => x.classList.remove("active"));
-  b.classList.add("active");
-  if (b.dataset.tab === "parlay") { showPanel("parlay"); renderParlayLegs(); }
-  else if (b.dataset.tab === "backtest") { showPanel("backtest"); }
-  else if (b.dataset.tab === "scores") { showPanel("scores"); loadScores(); }
-  else { load(b.dataset.sport, b.dataset.phase); }
-}));
+document.querySelectorAll("#main-nav button").forEach(b =>
+  b.addEventListener("click", () => showPanel(b.dataset.tab)));
 
-/* ===== Status badge ===== */
+document.getElementById("refresh-btn").addEventListener("click", () => {
+  if (!document.getElementById("halftime-panel").classList.contains("hidden")) {
+    if (currentGameId) loadGameDetail(currentGameId); else loadGames();
+  } else {
+    loadBets();
+  }
+});
+
+/* ===== Halftime: game list ===== */
+document.querySelectorAll(".ht-sport-toggle button").forEach(b =>
+  b.addEventListener("click", () => {
+    document.querySelectorAll(".ht-sport-toggle button").forEach(x => x.classList.remove("active"));
+    b.classList.add("active");
+    currentSport = b.dataset.sport;
+    currentGameId = null;
+    document.getElementById("ht-detail").classList.add("hidden");
+    loadGames();
+  }));
+
+async function loadGames() {
+  const host = document.getElementById("ht-games");
+  host.innerHTML = `<div class="loading"><div class="spinner"></div><span class="loading-text">Looking for ${currentSport.toUpperCase()} games...</span></div>`;
+  try {
+    const r = await fetch(`/api/halftime/games?sport=${currentSport}`);
+    const d = await r.json();
+    renderGames(d.games || []);
+  } catch (e) {
+    host.innerHTML = `<div class="empty-state">Failed to load games. Tap refresh.</div>`;
+  }
+}
+
+function renderGames(games) {
+  const host = document.getElementById("ht-games");
+  if (!games.length) {
+    host.innerHTML = `
+      <div class="empty-state">
+        <div style="font-size:1.5rem;margin-bottom:6px;">&#127944;</div>
+        No ${currentSport.toUpperCase()} games at halftime right now.<br/>
+        Refresh near halftime of a live game.
+      </div>`;
+    return;
+  }
+  host.innerHTML = games.map(g => {
+    const halfBadge = g.is_halftime
+      ? `<span class="pill live">HALFTIME</span>`
+      : `<span class="pill">${g.sport === "mlb" ? g.status : `Q${g.quarter} ${g.clock}`}</span>`;
+    const score = g.home_score !== undefined ? `${g.away_score}-${g.home_score}` : "";
+    return `
+      <button class="ht-game-card" onclick="loadGameDetail('${g.game_id}')">
+        <div class="ht-game-teams">
+          <span class="ht-team" style="border-left-color:${TEAM_TINT[g.away] || '#666'}">${g.away || "?"}</span>
+          <span class="ht-score">${score}</span>
+          <span class="ht-team" style="border-left-color:${TEAM_TINT[g.home] || '#666'}">${g.home || "?"}</span>
+        </div>
+        <div class="ht-game-foot">${halfBadge}</div>
+      </button>`;
+  }).join("");
+}
+
+/* ===== Halftime: game detail ===== */
+async function loadGameDetail(gameId) {
+  currentGameId = gameId;
+  pickedLegIndexes = new Set();
+  const detail = document.getElementById("ht-detail");
+  detail.classList.remove("hidden");
+  detail.innerHTML = `<div class="loading"><div class="spinner"></div><span class="loading-text">Analyzing game...</span></div>`;
+  try {
+    const r = await fetch(`/api/halftime/${currentSport}/${gameId}`);
+    const d = await r.json();
+    if (d.error) {
+      detail.innerHTML = `<div class="empty-state">${d.error}</div>`;
+      return;
+    }
+    if (currentSport === "nba") renderNbaDetail(d);
+    else renderMlbDetail(d);
+  } catch (e) {
+    detail.innerHTML = `<div class="empty-state">Failed to load game</div>`;
+  }
+}
+
+function renderNbaDetail(d) {
+  currentLegs = (d.legs || []).map((l, i) => ({ ...l, _idx: i }));
+  // Sort by edge proxy: prob distance from 0.5 in the chosen side
+  currentLegs.sort((a, b) => Math.max(b.p_over, 1 - b.p_over) - Math.max(a.p_over, 1 - a.p_over));
+
+  const linescore = d.away_quarters?.length
+    ? `<table class="ht-linescore"><tr><th></th>${d.away_quarters.map((_, i) => `<th>Q${i+1}</th>`).join("")}<th>T</th></tr>
+       <tr><td>${d.away_team}</td>${d.away_quarters.map(q => `<td>${q}</td>`).join("")}<td><b>${d.away_score}</b></td></tr>
+       <tr><td>${d.home_team}</td>${d.home_quarters.map(q => `<td>${q}</td>`).join("")}<td><b>${d.home_score}</b></td></tr>
+       </table>` : "";
+
+  document.getElementById("ht-detail").innerHTML = `
+    <div class="ht-detail-head">
+      <button class="btn btn-sm btn-outline" onclick="closeDetail()">&larr; Back</button>
+      <div class="ht-detail-title">${d.away_team_name || d.away_team} @ ${d.home_team_name || d.home_team}</div>
+      <span class="pill ${d.is_halftime ? 'live' : ''}">${d.is_halftime ? 'HALFTIME' : `Q${d.quarter} ${d.clock}`}</span>
+    </div>
+    ${linescore}
+    <div class="ht-pace">Pace factor <b>${d.pace_factor}×</b> · ${d.legs.length} legs projected</div>
+
+    <div class="ht-controls">
+      <select id="ht-side-filter">
+        <option value="best">Best side</option>
+        <option value="over">OVER only</option>
+        <option value="under">UNDER only</option>
+      </select>
+      <select id="ht-stat-filter">
+        <option value="">All stats</option>
+        <option value="points">Points</option>
+        <option value="rebounds">Rebounds</option>
+        <option value="assists">Assists</option>
+        <option value="threes_made">Threes</option>
+        <option value="pra">P+R+A</option>
+        <option value="pr">Pts+Reb</option>
+        <option value="pa">Pts+Ast</option>
+      </select>
+      <button id="ht-suggest" class="btn btn-primary btn-sm">Suggest Parlays</button>
+    </div>
+
+    <div id="ht-legs" class="ht-legs"></div>
+    <div id="ht-suggestions" class="ht-suggestions"></div>
+  `;
+  document.getElementById("ht-side-filter").addEventListener("change", renderLegs);
+  document.getElementById("ht-stat-filter").addEventListener("change", renderLegs);
+  document.getElementById("ht-suggest").addEventListener("click", runSuggest);
+  renderLegs();
+}
+
+function renderLegs() {
+  const sideFilter = document.getElementById("ht-side-filter").value;
+  const statFilter = document.getElementById("ht-stat-filter").value;
+  const host = document.getElementById("ht-legs");
+
+  const rows = currentLegs
+    .filter(l => !statFilter || l.stat === statFilter)
+    .map(l => {
+      const overBetter = l.p_over >= 0.5;
+      let side, prob;
+      if (sideFilter === "over")      { side = "OVER";  prob = l.p_over;       }
+      else if (sideFilter === "under"){ side = "UNDER"; prob = 1 - l.p_over;   }
+      else                             { side = overBetter ? "OVER" : "UNDER"; prob = Math.max(l.p_over, 1 - l.p_over); }
+      const edge = (prob - 0.5) * 100;
+      const edgeClass = edge >= 8 ? "high" : edge >= 4 ? "mid" : "low";
+      const picked = pickedLegIndexes.has(l._idx) && pickedLegIndexes.get?.(l._idx)?.side === side;
+      const checked = pickedLegIndexes.has(l._idx);
+      const tint = TEAM_TINT[l.team] || "#5a6270";
+      const foul = l.foul_trouble ? `<span class="ht-leg-warn" title="In foul trouble">FT</span>` : "";
+      return `
+        <div class="ht-leg ${checked ? 'picked' : ''}" data-idx="${l._idx}">
+          <div class="ht-leg-left">
+            <span class="ht-leg-avatar" style="background:${tint}">${initials(l.player)}</span>
+            <div class="ht-leg-info">
+              <div class="ht-leg-player">${l.player} ${foul}</div>
+              <div class="ht-leg-meta">${l.team} · ${prettyStat(l.stat)} · ${l.so_far} so far · ${l.minutes_so_far}m</div>
+            </div>
+          </div>
+          <div class="ht-leg-pick">
+            <span class="ht-leg-side ${side === 'OVER' ? 'over' : 'under'}">${side}</span>
+            <span class="ht-leg-line">${l.line}</span>
+            <span class="ht-leg-prob ${edgeClass}">${(prob*100).toFixed(0)}%</span>
+            <button class="ht-leg-add" data-side="${side}" data-idx="${l._idx}">${checked ? '−' : '+'}</button>
+          </div>
+        </div>`;
+    }).join("");
+
+  host.innerHTML = rows || `<div class="empty-state">No legs match filters</div>`;
+  host.querySelectorAll(".ht-leg-add").forEach(b => b.addEventListener("click", e => {
+    const idx = parseInt(e.currentTarget.dataset.idx, 10);
+    const side = e.currentTarget.dataset.side;
+    toggleLeg(idx, side);
+  }));
+}
+
+function toggleLeg(idx, side) {
+  // pickedLegIndexes is actually a Map of idx -> {side}
+  if (!(pickedLegIndexes instanceof Map)) pickedLegIndexes = new Map();
+  if (pickedLegIndexes.has(idx)) pickedLegIndexes.delete(idx);
+  else pickedLegIndexes.set(idx, { side });
+  renderLegs();
+  updateSelectionBadge();
+}
+
+function updateSelectionBadge() {
+  const n = pickedLegIndexes instanceof Map ? pickedLegIndexes.size : 0;
+  const btn = document.getElementById("ht-suggest");
+  if (btn) btn.textContent = n > 0 ? `Suggest from ${n} picks` : "Suggest Parlays";
+}
+
+function closeDetail() {
+  currentGameId = null;
+  document.getElementById("ht-detail").classList.add("hidden");
+}
+
+async function runSuggest() {
+  // If user has manually picked legs, use those; otherwise use the top-ranked auto pool.
+  let pool;
+  if (pickedLegIndexes instanceof Map && pickedLegIndexes.size >= 2) {
+    pool = [...pickedLegIndexes.entries()].map(([idx, v]) => {
+      const l = currentLegs.find(x => x._idx === idx);
+      return legToCandidate(l, v.side);
+    });
+  } else {
+    pool = currentLegs.slice(0, 14).map(l => legToCandidate(l, l.p_over >= 0.5 ? "OVER" : "UNDER"));
+  }
+
+  const host = document.getElementById("ht-suggestions");
+  host.innerHTML = `<div class="loading"><div class="spinner"></div><span class="loading-text">Building combos...</span></div>`;
+  try {
+    const r = await fetch("/api/builder/suggest", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        sport: currentSport,
+        game_id: currentGameId,
+        legs: pool,
+        min_leg_prob: 0.52,
+        min_ev: -0.20,
+        top_k: 8,
+      }),
+    });
+    const d = await r.json();
+    renderSuggestions(d.suggestions || []);
+  } catch (e) {
+    host.innerHTML = `<div class="empty-state">Suggestion engine failed</div>`;
+  }
+}
+
+function legToCandidate(l, side) {
+  // Default to -110 odds for picked legs (we don't have real odds yet)
+  return {
+    player: l.player, team: l.team, stat: l.stat, side,
+    line: l.line,
+    model_prob: side === "OVER" ? l.p_over : (1 - l.p_over),
+    american_odds: -110,
+    decimal_odds: 1.91,
+  };
+}
+
+function renderSuggestions(suggestions) {
+  const host = document.getElementById("ht-suggestions");
+  if (!suggestions.length) {
+    host.innerHTML = `<div class="empty-state">No +EV combos found from this pool</div>`;
+    return;
+  }
+  host.innerHTML = `
+    <div class="ht-section-title">Suggested Builders</div>
+    ${suggestions.map((s, i) => {
+      const evColor = s.ev_per_dollar >= 0.1 ? "var(--green)" : s.ev_per_dollar >= 0 ? "var(--yellow)" : "var(--red)";
+      const evSign = s.ev_per_dollar >= 0 ? "+" : "";
+      const ams = s.combined_american > 0 ? `+${s.combined_american}` : `${s.combined_american}`;
+      return `
+        <div class="ht-suggestion">
+          <div class="ht-suggestion-head">
+            <span class="pill">${s.size} legs</span>
+            <span class="ht-odds">${ams}</span>
+            <span class="ht-prob">${(s.correlated_prob*100).toFixed(1)}% hit</span>
+            <span class="ht-ev" style="color:${evColor}">${evSign}$${s.ev_per_dollar.toFixed(2)}/$1</span>
+          </div>
+          <div class="ht-suggestion-legs">
+            ${s.legs.map(l => `
+              <div class="ht-sug-leg">
+                <span class="ht-sug-avatar" style="background:${TEAM_TINT[l.team] || '#5a6270'}">${initials(l.player)}</span>
+                <span class="ht-sug-name">${l.player}</span>
+                <span class="ht-sug-pick ${l.side === 'OVER' ? 'over' : 'under'}">${l.side} ${l.line} ${prettyStat(l.stat)}</span>
+                <span class="ht-sug-prob">${(l.model_prob*100).toFixed(0)}%</span>
+              </div>
+            `).join("")}
+          </div>
+        </div>
+      `;
+    }).join("")}
+  `;
+}
+
+function renderMlbDetail(d) {
+  const host = document.getElementById("ht-detail");
+  const hitters = (d.players || []).filter(p => !p.is_pitcher && p.at_bats >= 1);
+  const pitchers = (d.players || []).filter(p => p.is_pitcher && p.innings_pitched > 0);
+
+  host.innerHTML = `
+    <div class="ht-detail-head">
+      <button class="btn btn-sm btn-outline" onclick="closeDetail()">&larr; Back</button>
+      <div class="ht-detail-title">${d.away_team} @ ${d.home_team}</div>
+      <span class="pill">${d.is_top ? 'Top' : 'Bot'} ${d.inning}</span>
+    </div>
+    <div class="ht-mlb-section">
+      <h3>Hitters</h3>
+      ${hitters.length ? hitters.map(p => `
+        <div class="ht-mlb-row">
+          <span class="ht-mlb-player">${p.player}</span>
+          <span class="ht-mlb-team">${p.team}</span>
+          <span class="ht-mlb-stat">${p.hits}-${p.at_bats}</span>
+          <span class="ht-mlb-stat">${p.total_bases} TB</span>
+          <span class="ht-mlb-stat">${p.runs} R · ${p.rbis} RBI</span>
+        </div>`).join("") : '<div class="empty-state">No hitter data yet</div>'}
+    </div>
+    <div class="ht-mlb-section">
+      <h3>Pitchers</h3>
+      ${pitchers.length ? pitchers.map(p => `
+        <div class="ht-mlb-row">
+          <span class="ht-mlb-player">${p.player}</span>
+          <span class="ht-mlb-team">${p.team}</span>
+          <span class="ht-mlb-stat">${p.innings_pitched} IP</span>
+          <span class="ht-mlb-stat">${p.strikeouts} K</span>
+          <span class="ht-mlb-stat">${p.pitch_count} pitches</span>
+        </div>`).join("") : '<div class="empty-state">No pitcher data yet</div>'}
+    </div>
+  `;
+}
+
+/* ===== Bets ===== */
+async function loadBets() {
+  const list = document.getElementById("bets-list");
+  list.innerHTML = `<div class="loading"><div class="spinner"></div><span class="loading-text">Loading bets...</span></div>`;
+  try {
+    const r = await fetch("/api/bets");
+    const d = await r.json();
+    renderBetSummary(d.stats);
+    renderBetList(d.bets);
+  } catch (e) {
+    list.innerHTML = `<div class="empty-state">Failed to load bets</div>`;
+  }
+}
+
+function renderBetSummary(s) {
+  const roiColor = s.pnl >= 0 ? "var(--green)" : "var(--red)";
+  document.getElementById("bets-summary").innerHTML = `
+    <div class="bt-summary">
+      <div class="bt-stat"><div class="val">${s.total_bets}</div><div class="lbl">Bets</div></div>
+      <div class="bt-stat"><div class="val">${s.wins}W-${s.losses}L${s.pushes ? `-${s.pushes}P` : ''}</div><div class="lbl">Record</div></div>
+      <div class="bt-stat"><div class="val">$${s.wagered.toFixed(0)}</div><div class="lbl">Wagered</div></div>
+      <div class="bt-stat"><div class="val" style="color:${roiColor}">${s.pnl >= 0 ? '+' : ''}$${s.pnl.toFixed(2)}</div><div class="lbl">P/L</div></div>
+      <div class="bt-stat"><div class="val" style="color:${roiColor}">${s.roi_pct >= 0 ? '+' : ''}${s.roi_pct.toFixed(1)}%</div><div class="lbl">ROI</div></div>
+      <div class="bt-stat"><div class="val">${s.open_bets}</div><div class="lbl">Open</div></div>
+    </div>`;
+}
+
+function renderBetList(bets) {
+  const list = document.getElementById("bets-list");
+  if (!bets.length) {
+    list.innerHTML = `<div class="empty-state">No bets logged yet. Upload a screenshot or add manually.</div>`;
+    return;
+  }
+  bets.sort((a, b) => b.placed_at - a.placed_at);
+  list.innerHTML = bets.map(b => {
+    const odds = b.american_odds ? (b.american_odds > 0 ? `+${b.american_odds}` : `${b.american_odds}`) : `${b.decimal_odds.toFixed(2)}x`;
+    const statusClass = b.status === "won" ? "won" : b.status === "lost" ? "lost" : b.status === "push" ? "push" : "open";
+    const settleBtns = b.status === "open" ? `
+      <button class="btn btn-sm" onclick="settleBet('${b.id}','won')">Won</button>
+      <button class="btn btn-sm btn-danger" onclick="settleBet('${b.id}','lost')">Lost</button>
+      <button class="btn btn-sm btn-outline" onclick="settleBet('${b.id}','push')">Push</button>
+    ` : `
+      <button class="btn btn-sm btn-outline" onclick="settleBet('${b.id}','open')">Reopen</button>
+    `;
+    return `
+      <div class="bet-card status-${statusClass}">
+        <div class="bet-head">
+          <span class="bet-stake">$${b.stake.toFixed(2)}</span>
+          <span class="bet-odds">${odds}</span>
+          <span class="bet-sport">${(b.sport || '').toUpperCase()}</span>
+          <span class="bet-status">${b.status.toUpperCase()}</span>
+          ${b.status !== "open" ? `<span class="bet-returned">→ $${b.returned.toFixed(2)}</span>` : ""}
+        </div>
+        <div class="bet-legs">
+          ${b.legs.map(l => `<div class="bet-leg-row"><span class="bet-leg-status ${l.status}">●</span>${l.description || `${l.player} · ${l.side} ${l.line} ${l.stat}`}</div>`).join("")}
+        </div>
+        <div class="bet-actions">
+          ${settleBtns}
+          <button class="btn btn-sm btn-danger" onclick="deleteBet('${b.id}')">Delete</button>
+        </div>
+      </div>`;
+  }).join("");
+}
+
+async function settleBet(id, status) {
+  try {
+    const r = await fetch(`/api/bets/${id}/settle`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status }),
+    });
+    const d = await r.json();
+    if (d.error) toast(d.error, "error");
+    else toast(`Bet ${status}`, "success");
+    loadBets();
+  } catch (e) { toast("Settle failed", "error"); }
+}
+
+async function deleteBet(id) {
+  if (!confirm("Delete this bet?")) return;
+  try {
+    await fetch(`/api/bets/${id}`, { method: "DELETE" });
+    toast("Deleted");
+    loadBets();
+  } catch (e) { toast("Delete failed", "error"); }
+}
+
+/* ===== Bets: upload ===== */
+document.getElementById("bet-screenshot").addEventListener("change", async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const fd = new FormData();
+  fd.append("image", file);
+  toast("Parsing screenshot with AI...");
+  try {
+    const r = await fetch("/api/bets/upload", { method: "POST", body: fd });
+    const d = await r.json();
+    if (d.error) { toast(d.error, "error"); return; }
+    toast("Bet logged from screenshot", "success");
+    loadBets();
+  } catch (err) {
+    toast("Upload failed", "error");
+  } finally {
+    e.target.value = "";
+  }
+});
+
+/* ===== Bets: manual entry ===== */
+document.getElementById("manual-bet-btn").addEventListener("click", () => {
+  document.getElementById("manual-form").classList.toggle("hidden");
+});
+document.getElementById("m-cancel").addEventListener("click", () => {
+  document.getElementById("manual-form").classList.add("hidden");
+});
+document.getElementById("m-save").addEventListener("click", async () => {
+  const sport = document.getElementById("m-sport").value;
+  const stake = parseFloat(document.getElementById("m-stake").value || "0");
+  const odds = parseInt(document.getElementById("m-odds").value || "0", 10);
+  const legsText = document.getElementById("m-legs").value.trim();
+  if (!stake || !legsText) { toast("Stake and at least one leg required", "error"); return; }
+  const legs = legsText.split("\n").map(line => ({
+    description: line.trim(),
+    status: "open",
+  })).filter(l => l.description);
+  try {
+    const r = await fetch("/api/bets", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sport, book: "bet365", stake, american_odds: odds, legs }),
+    });
+    const d = await r.json();
+    if (d.error) { toast(d.error, "error"); return; }
+    toast("Bet logged", "success");
+    document.getElementById("manual-form").classList.add("hidden");
+    document.getElementById("m-legs").value = "";
+    loadBets();
+  } catch (e) { toast("Save failed", "error"); }
+});
+
+/* ===== Status pill ===== */
 async function loadStatus() {
   try {
     const r = await fetch("/api/status");
     const s = await r.json();
     const pill = document.getElementById("status-pill");
-    const isLive = s.odds_provider === "live";
-    pill.className = isLive ? "live" : "mock";
-    pill.id = "status-pill";
-    pill.textContent = isLive ? `LIVE · ${s.nba_players + s.mlb_players} players` : `DEMO · ${s.nba_players + s.mlb_players} players`;
+    pill.className = s.vision_enabled ? "live" : "mock";
+    pill.textContent = s.vision_enabled ? "AI vision ON" : "AI vision OFF";
   } catch (_) {}
 }
 
 /* ===== Init ===== */
 loadStatus();
-checkNbaLiveAvailability();
-setInterval(checkNbaLiveAvailability, 60000);
-load("nba", "pregame");
+loadGames();
+setInterval(() => {
+  if (!document.getElementById("halftime-panel").classList.contains("hidden") && !currentGameId) {
+    loadGames();
+  }
+}, 60000);
