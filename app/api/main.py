@@ -1,4 +1,13 @@
-"""FastAPI backend. Serves the web UI and JSON endpoints.
+"""FastAPI backend for the Halftime Parlay Analyzer.
+
+This used to host a full pregame research board (NBA + MLB props, parlay
+builder, backtest). That surface was retired — this app's job now is:
+
+  1. Pull live box-scores from ESPN (NBA) and MLB StatsAPI mid-game,
+  2. Project second-half / remaining-innings stat lines per player,
+  3. Suggest +EV bet-builder combos for the current game,
+  4. Let the user log placed bets — manually or via a Claude-Vision parse
+     of a bet365 screenshot — and roll those into real ROI.
 
 Run:
     uvicorn app.api.main:app --reload
@@ -9,28 +18,27 @@ or:
 from __future__ import annotations
 
 import os
+from dataclasses import asdict
 from pathlib import Path
-from typing import Optional
 
 from dotenv import load_dotenv
 
 _env_path = Path(__file__).resolve().parent.parent / ".env"
 load_dotenv(_env_path)
 
-from fastapi import FastAPI, Query, Body
+from fastapi import Body, FastAPI, File, Form, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from app.api.pipeline import build_board
-from app.core.math_utils import american_to_decimal, edge_and_kelly
+from app.core.math_utils import american_to_decimal
 
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 
 app = FastAPI(
-    title="PropEdge Sports Research API",
+    title="PropEdge Halftime Parlay Analyzer",
     version="0.3.0",
-    description="AI-powered sports betting research API with Monte Carlo simulations, live odds, player projections, parlay pricing, and backtesting for NBA and MLB props.",
+    description="Live halftime / in-game projections, +EV parlay builder suggestions, and an AI-parsed bet log.",
     servers=[{"url": os.environ.get("PUBLIC_URL", ""), "description": "Production"}] if os.environ.get("PUBLIC_URL") else [],
 )
 
@@ -50,399 +58,201 @@ def index():
     return FileResponse(WEB_DIR / "index.html")
 
 
-# ---------- Core board ----------
+# ---------- Halftime / In-game analyzer ----------
 
-@app.get("/api/board")
-def board(
-    sport: str = Query("nba", pattern="^(nba|mlb)$"),
-    phase: str = Query("pregame", pattern="^(pregame|live)$"),
-):
-    # MLB live is disabled — only pregame research is offered for baseball.
-    if sport == "mlb" and phase == "live":
-        return JSONResponse(
-            {"error": "MLB live research is disabled. Use pregame for baseball."},
-            status_code=400,
-        )
-    # NBA live is only open when a playoff game is at halftime.
-    if sport == "nba" and phase == "live":
-        from app.data.live_scores import LiveScoresFeed
-        from app.data.nba_stats import NBA_PLAYOFF_TEAMS
-
-        try:
-            games = LiveScoresFeed().nba_scoreboard()
-        except Exception:  # pragma: no cover
-            games = []
-        halftime = any(
-            g.is_halftime
-            and g.home_team in NBA_PLAYOFF_TEAMS
-            and g.away_team in NBA_PLAYOFF_TEAMS
-            for g in games
-        )
-        if not halftime:
-            return JSONResponse(
-                {
-                    "sport": sport,
-                    "phase": phase,
-                    "cards": [],
-                    "gated": True,
-                    "message": "NBA Live research opens at halftime of playoff games.",
-                }
-            )
-
-    cards = build_board(sport, phase=phase)
-    return JSONResponse({"sport": sport, "phase": phase, "cards": cards})
-
-
-# ---------- Player search ----------
-
-@app.get("/api/search")
-def search_players(q: str = Query("", min_length=1), sport: str = Query("nba", pattern="^(nba|mlb)$")):
-    """Search for players by name fragment. Returns matching names."""
-    q_lower = q.lower()
-    if sport == "nba":
-        from app.data.nba_stats import NBA_PLAYERS
-        matches = [name for name in NBA_PLAYERS if q_lower in name.lower()]
-    else:
-        from app.data.mlb_stats import MLB_HITTERS, MLB_PITCHERS
-        all_names = list(MLB_HITTERS.keys()) + list(MLB_PITCHERS.keys())
-        matches = [name for name in all_names if q_lower in name.lower()]
-    return {"sport": sport, "query": q, "results": sorted(set(matches))[:20]}
-
-
-@app.get("/api/player/{player_name}")
-def player_detail(player_name: str, sport: str = Query("nba", pattern="^(nba|mlb)$")):
-    """Get all available stats and projections for a specific player."""
-    from app.data.providers import get_stats_provider
-    from app.core.simulator import Projection, simulate_prop
-    from app.sports.nba.markets import NBA_MARKETS
-    from app.sports.mlb.markets import MLB_MARKETS
-
-    stats_provider = get_stats_provider()
-    markets = NBA_MARKETS if sport == "nba" else MLB_MARKETS
-    trials = int(os.environ.get("SIM_TRIALS", "1000"))
-
-    props = []
-    for stat_name in markets:
-        try:
-            ctx = stats_provider.player_context(sport, player_name, stat_name)
-        except KeyError:
-            continue
-
-        if sport == "nba":
-            from app.sports.nba.projection import PlayerContext, project_pregame
-            proj = project_pregame(PlayerContext(player=player_name, stat=stat_name, **ctx))
-        else:
-            kind = ctx.pop("kind", "hitter")
-            if kind == "hitter":
-                from app.sports.mlb.projection import HitterContext, project_hitter
-                proj = project_hitter(HitterContext(player=player_name, stat=stat_name, **ctx))
-            else:
-                from app.sports.mlb.projection import PitcherContext, project_pitcher
-                proj = project_pitcher(PitcherContext(player=player_name, stat=stat_name, **ctx))
-
-        props.append({
-            "stat": stat_name,
-            "mean": proj.mean,
-            "sd": proj.sd,
-            "dist": proj.dist,
-        })
-
-    if not props:
-        return JSONResponse({"error": f"Player not found: {player_name}"}, status_code=404)
-    return {"player": player_name, "sport": sport, "props": props}
-
-
-# ---------- Player game log (PropsMadness-style graph) ----------
-
-@app.get("/api/player/{player_name}/gamelog")
-def player_gamelog(
-    player_name: str,
-    stat: str = Query("points"),
-    line: Optional[float] = Query(None),
-    n: int = Query(12, ge=4, le=20),
-):
-    """Recent game-by-game log for a player/stat used by the graph view.
-
-    Only NBA is supported for now (playoffs-in-progress). Response includes
-    season avg, graph avg, hit rate vs the line, and per-game bars.
-    """
-    from app.data.gamelog import build_nba_gamelog
-    from app.data.nba_stats import NBA_PLAYERS
-
-    if player_name not in NBA_PLAYERS:
-        return JSONResponse({"error": f"Player not found: {player_name}"}, status_code=404)
-
-    p = NBA_PLAYERS[player_name]
-    if stat not in p and stat not in ("pra", "pr", "pa", "ra"):
-        return JSONResponse({"error": f"Stat '{stat}' not available for {player_name}"}, status_code=400)
-
-    try:
-        return build_nba_gamelog(player_name, stat, line=line, n_games=n)
-    except KeyError as e:
-        return JSONResponse({"error": str(e)}, status_code=404)
-
-
-@app.get("/api/player/{player_name}/shooting")
-def player_shooting(player_name: str):
-    """Deterministic shooting profile derived from the player's season means.
-
-    We don't have real play-by-play archives wired up, so we back out a
-    plausible shot chart from points / threes_made / minutes using stable
-    per-player seeded efficiencies.
-    """
-    import hashlib
-    from app.data.nba_stats import NBA_PLAYERS
-
-    if player_name not in NBA_PLAYERS:
-        return JSONResponse({"error": f"Player not found: {player_name}"}, status_code=404)
-
-    p = NBA_PLAYERS[player_name]
-    pts = p["points"][0]
-    three_pm = p["threes_made"][0]
-    minutes = p.get("min", 28.0)
-
-    # Stable seeds from name so the profile doesn't flicker between refreshes.
-    seed = int(hashlib.md5(player_name.encode()).hexdigest()[:8], 16)
-
-    def jitter(base: float, spread: float, offset: int) -> float:
-        frac = ((seed >> (offset * 3)) & 0xFF) / 255.0  # 0..1
-        return base + (frac - 0.5) * 2 * spread
-
-    three_pct = max(0.25, min(0.45, jitter(0.355, 0.06, 0)))
-    two_pct = max(0.42, min(0.62, jitter(0.515, 0.05, 1)))
-    ft_pct = max(0.55, min(0.95, jitter(0.78, 0.12, 2)))
-    ft_rate = max(0.10, min(0.40, jitter(0.22, 0.08, 3)))  # FTA per FGA
-
-    three_pa = three_pm / three_pct if three_pct > 0 else 0.0
-    # points from 3s + 2s + FTs  =>  2*2PM + 3*3PM + FTM = pts
-    # solve for 2PM assuming FTM/FGA ≈ ft_rate * ft_pct.
-    # Use iteration: assume FGA ≈ 3PA + 2PA. Start with 2PA guess.
-    two_pa = max(1.0, (pts - 3 * three_pm) / max(0.6, 2 * two_pct))
-    fga = two_pa + three_pa
-    fta = fga * ft_rate
-    ftm = fta * ft_pct
-    # re-solve 2PM to balance points exactly
-    two_pm_needed = max(0.0, (pts - 3 * three_pm - ftm) / 2)
-    two_pa = max(two_pm_needed / two_pct, 0.5) if two_pct > 0 else 0.0
-    two_pm = two_pa * two_pct
-    fga = two_pa + three_pa
-    fgm = two_pm + three_pm
-    fg_pct = fgm / fga if fga > 0 else 0.0
-    efg_pct = (fgm + 0.5 * three_pm) / fga if fga > 0 else 0.0
-    ts_pct = pts / (2 * (fga + 0.44 * fta)) if (fga + fta) > 0 else 0.0
-
-    # Zone breakdown — again, deterministic shares.
-    rim_share = max(0.15, min(0.55, jitter(0.35, 0.1, 4)))   # at-rim
-    mid_share = max(0.10, min(0.35, jitter(0.18, 0.06, 5)))  # mid-range
-    three_share = three_pa / fga if fga > 0 else 0.0
-    # normalize so rim + mid + three ≈ 1
-    remaining = max(0.0, 1 - three_share)
-    total_2 = rim_share + mid_share
-    if total_2 > 0:
-        rim_share = rim_share / total_2 * remaining
-        mid_share = mid_share / total_2 * remaining
-
-    return {
-        "player": player_name,
-        "team": p["team"],
-        "minutes": round(minutes, 1),
-        "fg": {"made": round(fgm, 1), "att": round(fga, 1), "pct": round(fg_pct * 100, 1)},
-        "three": {"made": round(three_pm, 1), "att": round(three_pa, 1), "pct": round(three_pct * 100, 1)},
-        "ft": {"made": round(ftm, 1), "att": round(fta, 1), "pct": round(ft_pct * 100, 1)},
-        "ts_pct": round(ts_pct * 100, 1),
-        "efg_pct": round(efg_pct * 100, 1),
-        "zones": [
-            {"name": "At Rim", "share": round(rim_share * 100, 1), "pct": round(min(0.75, two_pct + 0.12) * 100, 1)},
-            {"name": "Mid-Range", "share": round(mid_share * 100, 1), "pct": round(max(0.30, two_pct - 0.08) * 100, 1)},
-            {"name": "3-Point", "share": round(three_share * 100, 1), "pct": round(three_pct * 100, 1)},
-        ],
-    }
-
-
-@app.get("/api/player/{player_name}/similar")
-def player_similar(player_name: str, n: int = Query(6, ge=1, le=10)):
-    """Players with the closest stat profile (Euclidean distance on normalized means)."""
-    from app.data.nba_stats import NBA_PLAYERS, NBA_TEAM_NAMES
-
-    if player_name not in NBA_PLAYERS:
-        return JSONResponse({"error": f"Player not found: {player_name}"}, status_code=404)
-
-    keys = ("points", "rebounds", "assists", "threes_made", "steals", "blocks")
-
-    # League-wide scales for normalization so no stat dominates the distance.
-    scales = {}
-    for k in keys:
-        vals = [pl[k][0] for pl in NBA_PLAYERS.values() if isinstance(pl.get(k), tuple)]
-        scales[k] = max(vals) if vals else 1.0
-
-    def vec(p):
-        return [p[k][0] / scales[k] for k in keys]
-
-    base = vec(NBA_PLAYERS[player_name])
-
-    distances = []
-    for name, p in NBA_PLAYERS.items():
-        if name == player_name:
-            continue
-        v = vec(p)
-        d2 = sum((a - b) ** 2 for a, b in zip(base, v))
-        distances.append((d2, name, p))
-
-    distances.sort(key=lambda x: x[0])
-    results = []
-    for d2, name, p in distances[:n]:
-        sim_pct = max(0, round((1 - min(1.0, d2 ** 0.5 / 1.5)) * 100))
-        results.append({
-            "name": name,
-            "team": p["team"],
-            "team_name": NBA_TEAM_NAMES.get(p["team"], p["team"]),
-            "points": p["points"][0],
-            "rebounds": p["rebounds"][0],
-            "assists": p["assists"][0],
-            "threes_made": p["threes_made"][0],
-            "similarity": sim_pct,
-        })
-    return {"player": player_name, "similar": results}
-
-
-@app.get("/api/player/{player_name}/types")
-def player_types(player_name: str):
-    """Summary across all prop types available for this player."""
-    from app.data.gamelog import build_nba_gamelog
-    from app.data.nba_stats import NBA_PLAYERS, COMBO_STATS
-
-    if player_name not in NBA_PLAYERS:
-        return JSONResponse({"error": f"Player not found: {player_name}"}, status_code=404)
-
-    p = NBA_PLAYERS[player_name]
-    stat_keys = [k for k in ("points", "rebounds", "assists", "threes_made", "steals", "blocks") if k in p]
-    stat_keys += list(COMBO_STATS.keys())
-
-    out = []
-    for stat in stat_keys:
-        try:
-            g = build_nba_gamelog(player_name, stat, n_games=12)
-        except KeyError:
-            continue
-        out.append({
-            "stat": stat,
-            "season_avg": g["season_avg"],
-            "graph_avg": g["graph_avg"],
-            "line": g["line"],
-            "hit_rate": g["hit_rate"],
-            "hits": g["hits"],
-            "games": g["games_played"],
-        })
-    # sort by hit rate desc so the best-performing markets float to the top
-    out.sort(key=lambda r: r["hit_rate"], reverse=True)
-    return {"player": player_name, "team": p["team"], "types": out}
-
-
-@app.get("/api/player/{player_name}/teammates")
-def player_teammates(
-    player_name: str,
-    stat: str = Query("points"),
-    n: int = Query(6, ge=1, le=10),
-):
-    """Teammates of the given NBA player for the 'Suggested' strip in the graph modal."""
-    from app.data.nba_stats import NBA_PLAYERS, COMBO_STATS
-
-    if player_name not in NBA_PLAYERS:
-        return JSONResponse({"error": f"Player not found: {player_name}"}, status_code=404)
-    team = NBA_PLAYERS[player_name]["team"]
-
-    def mean_for(p: dict, s: str) -> Optional[float]:
-        if s in COMBO_STATS:
-            try:
-                return sum(p[c][0] for c in COMBO_STATS[s])
-            except KeyError:
-                return None
-        v = p.get(s)
-        if isinstance(v, tuple):
-            return v[0]
-        return None
-
-    mates = []
-    for name, p in NBA_PLAYERS.items():
-        if name == player_name or p["team"] != team:
-            continue
-        m = mean_for(p, stat)
-        if m is None:
-            continue
-        mates.append({"name": name, "team": team, "mean": round(m, 1)})
-
-    mates.sort(key=lambda x: x["mean"], reverse=True)
-    return {"player": player_name, "team": team, "stat": stat, "teammates": mates[:n]}
-
-
-# ---------- Playoffs ----------
-
-@app.get("/api/playoffs/nba")
-def nba_playoffs():
-    """Current NBA playoff bracket with team rosters."""
-    from app.data.nba_stats import (
-        NBA_PLAYOFF_BRACKET,
-        NBA_PLAYOFF_TEAMS,
-        NBA_TEAM_NAMES,
-        NBA_PLAYERS,
-    )
-
-    teams = {}
-    for team, meta in NBA_PLAYOFF_TEAMS.items():
-        roster = sorted([name for name, p in NBA_PLAYERS.items() if p["team"] == team])
-        teams[team] = {
-            "name": NBA_TEAM_NAMES.get(team, team),
-            "seed": meta["seed"],
-            "conference": meta["conference"],
-            "opp": meta["opp"],
-            "series": meta["series"],
-            "roster": roster,
-        }
-    return {"bracket": NBA_PLAYOFF_BRACKET, "teams": teams}
-
-
-@app.get("/api/nba/live_availability")
-def nba_live_availability():
-    """NBA Live research is only available during halftime of a playoff game.
-
-    Returns { available, games: [...] } where each game has teams/score/clock.
-    If there's no live playoff halftime, the UI hides the NBA Live tab.
-    """
+@app.get("/api/halftime/games")
+def halftime_games(sport: str = Query("nba", pattern="^(nba|mlb)$")):
+    """Return a list of games eligible for halftime / mid-game analysis."""
     from app.data.live_scores import LiveScoresFeed
-    from app.data.nba_stats import NBA_PLAYOFF_TEAMS
 
-    try:
-        feed = LiveScoresFeed()
-        games = feed.nba_scoreboard()
-    except Exception:  # pragma: no cover - network failure
-        games = []
-
-    halftime_games = [
-        g for g in games
-        if g.is_halftime
-        and g.home_team in NBA_PLAYOFF_TEAMS
-        and g.away_team in NBA_PLAYOFF_TEAMS
-    ]
-    return {
-        "available": bool(halftime_games),
-        "games": [
-            {
+    feed = LiveScoresFeed()
+    if sport == "nba":
+        try:
+            games = feed.nba_scoreboard()
+        except Exception:
+            games = []
+        out = []
+        for g in games:
+            eligible = g.is_halftime or (g.quarter == 2) or (g.quarter == 3 and g.clock != "0:00")
+            if not eligible:
+                continue
+            out.append({
                 "game_id": g.game_id,
                 "home": g.home_team,
                 "away": g.away_team,
-                "score": f"{g.away_score}-{g.home_score}",
-                "series": NBA_PLAYOFF_TEAMS[g.home_team]["series"],
+                "home_score": g.home_score,
+                "away_score": g.away_score,
+                "quarter": g.quarter,
+                "clock": g.clock,
+                "is_halftime": g.is_halftime,
+            })
+        return {"sport": "nba", "games": out}
+
+    # MLB — anything in-progress and past the 4th inning
+    sched = feed.mlb_schedule_today()
+    out = []
+    for g in sched:
+        status = (g.get("status") or "").lower()
+        if "progress" not in status and "in progress" not in status:
+            continue
+        out.append({
+            "game_id": g.get("game_id", ""),
+            "home": g.get("home", ""),
+            "away": g.get("away", ""),
+            "status": g.get("status", ""),
+        })
+    return {"sport": "mlb", "games": out}
+
+
+@app.get("/api/halftime/nba/{game_id}")
+def halftime_nba(game_id: str):
+    """Halftime projection for one NBA game."""
+    from app.data.live_boxscore import fetch_nba_boxscore
+    from app.sports.halftime_projection import project_nba_halftime
+
+    box = fetch_nba_boxscore(game_id)
+    if box is None:
+        return JSONResponse({"error": "Could not fetch live box score"}, status_code=502)
+
+    ht = project_nba_halftime(box)
+    return {
+        "game_id": ht.game_id,
+        "home_team": ht.home_team,
+        "away_team": ht.away_team,
+        "home_team_name": box.home_team_name,
+        "away_team_name": box.away_team_name,
+        "home_score": ht.home_score,
+        "away_score": ht.away_score,
+        "quarter": ht.quarter,
+        "clock": ht.clock,
+        "is_halftime": ht.is_halftime,
+        "home_quarters": box.home_quarters,
+        "away_quarters": box.away_quarters,
+        "pace_factor": ht.pace_factor,
+        "legs": [asdict(l) for l in ht.legs],
+    }
+
+
+@app.get("/api/halftime/mlb/{game_id}")
+def halftime_mlb(game_id: str):
+    """Mid-game projection for one MLB game (5th inning onward)."""
+    from app.data.live_scores import LiveScoresFeed
+
+    g = LiveScoresFeed().mlb_live_game(game_id)
+    if g is None:
+        return JSONResponse({"error": "Could not fetch MLB live feed"}, status_code=502)
+
+    # Lightweight in-game view — we expose what the user can see in
+    # the bet365 in-play menu (current hitter/pitcher splits). Full
+    # remaining-innings projection is a follow-up.
+    return {
+        "game_id": g.game_id,
+        "home_team": g.home_team,
+        "away_team": g.away_team,
+        "inning": g.inning,
+        "is_top": g.is_top,
+        "home_score": g.home_score,
+        "away_score": g.away_score,
+        "is_final": g.is_final,
+        "players": [asdict(p) for p in g.players],
+    }
+
+
+# ---------- Suggested bet builder ----------
+
+@app.post("/api/builder/suggest")
+def suggest_builder(
+    body: dict = Body(...),
+):
+    """Given a list of halftime legs (from /api/halftime/...), return the
+    best +EV 2/3/4-leg combos sorted by correlated EV.
+
+    Request body:
+      {
+        "sport": "nba",
+        "game_id": "...",
+        "legs": [
+          {"player": "...", "team": "...", "stat": "points", "side": "OVER",
+           "line": 11.5, "model_prob": 0.62, "american_odds": -110,
+           "decimal_odds": 1.91},
+          ...
+        ],
+        "sizes": [2, 3, 4],   // optional
+        "min_leg_prob": 0.55,  // optional
+        "min_ev": 0.0,         // optional
+        "top_k": 6             // optional
+      }
+    """
+    from app.core.builder import CandidateLeg, suggest_builders
+
+    sport = body.get("sport", "nba")
+    game_id = body.get("game_id", "")
+    raw_legs = body.get("legs") or []
+    if not raw_legs:
+        return JSONResponse({"error": "legs is required"}, status_code=400)
+
+    candidates: list[CandidateLeg] = []
+    for l in raw_legs:
+        try:
+            american = int(l.get("american_odds", -110))
+            decimal = float(l.get("decimal_odds") or american_to_decimal(american))
+            candidates.append(CandidateLeg(
+                player=l["player"],
+                team=l.get("team", ""),
+                stat=l["stat"],
+                side=l["side"],
+                line=float(l["line"]),
+                model_prob=float(l["model_prob"]),
+                american_odds=american,
+                decimal_odds=decimal,
+                game_id=game_id,
+                sport=sport,
+            ))
+        except (KeyError, ValueError, TypeError) as e:
+            return JSONResponse({"error": f"Invalid leg: {e}"}, status_code=400)
+
+    sizes = tuple(body.get("sizes") or (2, 3, 4))
+    suggestions = suggest_builders(
+        candidates,
+        sizes=sizes,
+        min_leg_prob=float(body.get("min_leg_prob", 0.55)),
+        min_ev=float(body.get("min_ev", 0.0)),
+        top_k=int(body.get("top_k", 6)),
+    )
+    return {
+        "sport": sport,
+        "game_id": game_id,
+        "suggestions": [
+            {
+                "size": len(s.legs),
+                "naive_prob": s.naive_prob,
+                "correlated_prob": s.correlated_prob,
+                "combined_decimal_odds": s.combined_decimal_odds,
+                "combined_american": s.combined_american,
+                "ev_per_dollar": s.ev_per_dollar,
+                "legs": [
+                    {
+                        "player": l.player,
+                        "team": l.team,
+                        "stat": l.stat,
+                        "side": l.side,
+                        "line": l.line,
+                        "model_prob": l.model_prob,
+                        "american_odds": l.american_odds,
+                    }
+                    for l in s.legs
+                ],
             }
-            for g in halftime_games
+            for s in suggestions
         ],
     }
 
 
-# ---------- Parlay builder ----------
+# ---------- Parlay pricer (kept for ad-hoc pricing) ----------
 
 @app.post("/api/parlay")
 def build_parlay_endpoint(legs: list[dict] = Body(...)):
-    """Price a parlay. Each leg: {player, stat, side, model_prob, game_id, sport, odds}."""
+    """Price an ad-hoc parlay. Each leg: {player, stat, side, model_prob, game_id, sport, odds}."""
     from app.core.parlay import ParlayLeg, build_parlay
 
     parlay_legs = []
@@ -475,65 +285,117 @@ def build_parlay_endpoint(legs: list[dict] = Body(...)):
     }
 
 
-# ---------- Backtest ----------
+# ---------- Bet log ----------
 
-@app.get("/api/backtest")
-def run_backtest_endpoint(
-    n_games: int = Query(200, ge=50, le=2000),
-    min_edge: float = Query(3.0, ge=0.0),
-):
-    """Run a backtest on synthetic history."""
-    from app.backtest.engine import generate_synthetic_history, run_backtest
-
-    history = generate_synthetic_history(n_games=n_games)
-    report = run_backtest(history, min_edge_pct=min_edge)
-    return {
-        "total_games": report.total_games,
-        "picks_made": report.picks_made,
-        "wins": report.wins,
-        "losses": report.losses,
-        "win_rate": report.win_rate,
-        "flat_roi_pct": report.flat_roi_pct,
-        "kelly_roi_pct": report.kelly_roi_pct,
-        "mean_edge_pct": report.mean_edge_pct,
-        "calibration": report.calibration,
-        "by_sport": report.by_sport,
-        "by_stat": report.by_stat,
-    }
+@app.get("/api/bets")
+def list_bets():
+    from app.data.bet_log import BetStore
+    store = BetStore()
+    return {"bets": store.all(), "stats": store.stats()}
 
 
-# ---------- Live scores ----------
-
-@app.get("/api/live/nba")
-def live_nba():
-    """Get live NBA scoreboard from ESPN."""
-    from app.data.live_scores import LiveScoresFeed
-    feed = LiveScoresFeed()
-    games = feed.nba_scoreboard()
-    return {
-        "games": [
-            {
-                "game_id": g.game_id,
-                "home": g.home_team,
-                "away": g.away_team,
-                "score": f"{g.away_score}-{g.home_score}",
-                "quarter": g.quarter,
-                "clock": g.clock,
-                "is_halftime": g.is_halftime,
-                "is_final": g.is_final,
-                "is_blowout": g.is_blowout,
-            }
-            for g in games
-        ]
-    }
+@app.get("/api/bets/stats")
+def bet_stats():
+    from app.data.bet_log import BetStore
+    return BetStore().stats()
 
 
-@app.get("/api/live/mlb")
-def live_mlb():
-    """Get today's MLB schedule and live status."""
-    from app.data.live_scores import LiveScoresFeed
-    feed = LiveScoresFeed()
-    return {"games": feed.mlb_schedule_today()}
+@app.post("/api/bets")
+def add_bet(body: dict = Body(...)):
+    """Manually add a bet.
+
+    Body: {sport, book, stake, american_odds, legs:[{description,player,stat,side,line,status}], note}
+    """
+    from app.data.bet_log import BetLeg, BetStore, make_bet
+
+    try:
+        legs = [BetLeg(**l) for l in (body.get("legs") or [])]
+        bet = make_bet(
+            sport=body.get("sport", "other"),
+            book=body.get("book", "bet365"),
+            stake=float(body["stake"]),
+            american_odds=int(body.get("american_odds") or 0) or None,
+            legs=legs,
+            source="manual",
+            note=body.get("note", ""),
+        )
+    except (KeyError, ValueError, TypeError) as e:
+        return JSONResponse({"error": f"Invalid bet: {e}"}, status_code=400)
+
+    return BetStore().add(bet)
+
+
+@app.post("/api/bets/upload")
+async def upload_bet(image: UploadFile = File(...), note: str = Form("")):
+    """Parse a bet-slip screenshot via Claude Vision and log it."""
+    from app.data.bet_log import BetLeg, BetStore, make_bet
+    from app.data.bet_parser import parse_bet_screenshot
+
+    try:
+        image_bytes = await image.read()
+    except Exception as e:
+        return JSONResponse({"error": f"Could not read image: {e}"}, status_code=400)
+    if not image_bytes:
+        return JSONResponse({"error": "Empty image"}, status_code=400)
+
+    media_type = image.content_type or "image/png"
+    try:
+        parsed = parse_bet_screenshot(image_bytes, media_type=media_type)
+    except RuntimeError as e:
+        return JSONResponse({"error": str(e)}, status_code=502)
+
+    legs = [BetLeg(**{
+        "description": l.get("description", ""),
+        "player": l.get("player", ""),
+        "stat": l.get("stat", ""),
+        "side": l.get("side", ""),
+        "line": l.get("line"),
+        "status": l.get("status", "open"),
+    }) for l in (parsed.get("legs") or [])]
+
+    odds = parsed.get("american_odds")
+    try:
+        odds_int = int(odds) if odds is not None else None
+    except (TypeError, ValueError):
+        odds_int = None
+
+    bet = make_bet(
+        sport=parsed.get("sport", "other"),
+        book=parsed.get("book", "other"),
+        stake=float(parsed.get("stake", 0) or 0),
+        american_odds=odds_int,
+        legs=legs,
+        source="image",
+        note=note,
+    )
+    bet.status = parsed.get("status", "open")
+    bet.returned = float(parsed.get("returned", 0) or 0)
+    return BetStore().add(bet)
+
+
+@app.post("/api/bets/{bet_id}/settle")
+def settle_bet(bet_id: str, body: dict = Body(...)):
+    """Mark a logged bet as won/lost/push/void."""
+    from app.data.bet_log import BetStore
+
+    status = body.get("status")
+    if status not in ("won", "lost", "push", "void", "open"):
+        return JSONResponse({"error": "status must be won/lost/push/void/open"}, status_code=400)
+    returned = body.get("returned")
+    returned_f = float(returned) if returned is not None else None
+    res = BetStore().update_status(bet_id, status, returned=returned_f)
+    if res is None:
+        return JSONResponse({"error": "Bet not found"}, status_code=404)
+    return res
+
+
+@app.delete("/api/bets/{bet_id}")
+def delete_bet(bet_id: str):
+    from app.data.bet_log import BetStore
+    ok = BetStore().delete(bet_id)
+    if not ok:
+        return JSONResponse({"error": "Bet not found"}, status_code=404)
+    return {"deleted": bet_id}
 
 
 # ---------- ChatGPT-friendly endpoints ----------
@@ -680,28 +542,9 @@ def health():
 @app.get("/api/status")
 def status():
     return {
-        "odds_provider": "live" if os.environ.get("ODDS_API_KEY", "").strip() else "mock",
-        "stats_provider": "database",
-        "nba_players": _count_nba(),
-        "mlb_players": _count_mlb(),
-        "ai_enabled": bool(os.environ.get("ANTHROPIC_API_KEY", "").strip()),
+        "halftime_provider": "espn",
+        "vision_enabled": bool(os.environ.get("ANTHROPIC_API_KEY", "").strip()),
     }
-
-
-def _count_nba() -> int:
-    try:
-        from app.data.nba_stats import NBA_PLAYERS
-        return len(NBA_PLAYERS)
-    except Exception:
-        return 0
-
-
-def _count_mlb() -> int:
-    try:
-        from app.data.mlb_stats import MLB_HITTERS, MLB_PITCHERS
-        return len(MLB_HITTERS) + len(MLB_PITCHERS)
-    except Exception:
-        return 0
 
 
 if __name__ == "__main__":
