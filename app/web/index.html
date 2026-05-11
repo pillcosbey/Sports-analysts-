@@ -31,6 +31,9 @@
     <button data-tab="halftime" class="active">
       <span class="nav-icon">&#9202;</span><span class="nav-label">Halftime</span>
     </button>
+    <button data-tab="picks">
+      <span class="nav-icon">&#129302;</span><span class="nav-label">Claude Picks</span>
+    </button>
     <button data-tab="bets">
       <span class="nav-icon">&#128181;</span><span class="nav-label">My Bets</span>
     </button>
@@ -51,6 +54,16 @@
     </div>
 
     <div id="ht-detail" class="ht-detail hidden"></div>
+  </section>
+
+  <!-- Picks panel -->
+  <section id="picks-panel" class="panel hidden">
+    <div class="panel-header">
+      <h2>Claude's Picks</h2>
+      <span class="panel-sub">Auto-logged when I suggest a parlay · graded at $1 flat</span>
+    </div>
+    <div id="picks-summary"></div>
+    <div id="picks-list" class="bets-list"></div>
   </section>
 
   <!-- Bets panel -->

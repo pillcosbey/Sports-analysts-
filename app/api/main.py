@@ -398,6 +398,144 @@ def delete_bet(bet_id: str):
     return {"deleted": bet_id}
 
 
+# ---------- Claude pick log ----------
+
+@app.get("/api/picks")
+def list_picks():
+    """Every parlay Claude has suggested + W/L track record."""
+    from app.data.pick_log import PickStore
+    store = PickStore()
+    return {"picks": store.all(), "stats": store.stats()}
+
+
+@app.get("/api/picks/stats")
+def pick_stats():
+    from app.data.pick_log import PickStore
+    return PickStore().stats()
+
+
+@app.post("/api/picks")
+def add_pick(body: dict = Body(...)):
+    """Log a Claude-suggested parlay.
+
+    Body:
+      {
+        "sport": "nba",
+        "game_id": "401705234",
+        "confidence": "high",       // optional
+        "rationale": "Pace running 1.18x, ...",
+        "american_odds": 650,        // combined parlay odds
+        "model_prob": 0.18,
+        "ev_per_dollar": 0.34,
+        "legs": [
+          {"description":"Player X Over 21.5 Points",
+           "player":"X","team":"BOS","stat":"points","side":"OVER",
+           "line":21.5,"model_prob":0.62,"american_odds":-110},
+          ...
+        ]
+      }
+    """
+    from app.data.pick_log import PickLeg, PickStore, make_pick
+
+    try:
+        legs_in = body.get("legs") or []
+        if not legs_in:
+            return JSONResponse({"error": "legs is required"}, status_code=400)
+        legs = [PickLeg(**{
+            "description": l.get("description", ""),
+            "player": l.get("player", ""),
+            "team": l.get("team", ""),
+            "stat": l.get("stat", ""),
+            "side": l.get("side", ""),
+            "line": l.get("line"),
+            "model_prob": l.get("model_prob"),
+            "american_odds": l.get("american_odds"),
+            "status": l.get("status", "open"),
+        }) for l in legs_in]
+
+        odds = body.get("american_odds")
+        odds_int = int(odds) if odds is not None else None
+        pick = make_pick(
+            sport=body.get("sport", "other"),
+            legs=legs,
+            american_odds=odds_int,
+            model_prob=body.get("model_prob"),
+            ev_per_dollar=body.get("ev_per_dollar"),
+            rationale=body.get("rationale", ""),
+            confidence=body.get("confidence", "medium"),
+            game_id=body.get("game_id", ""),
+            source=body.get("source", "claude"),
+        )
+    except (KeyError, ValueError, TypeError) as e:
+        return JSONResponse({"error": f"Invalid pick: {e}"}, status_code=400)
+
+    return PickStore().add(pick)
+
+
+@app.post("/api/picks/{pick_id}/settle")
+def settle_pick(pick_id: str, body: dict = Body(...)):
+    """Mark a logged pick as won/lost/push/void."""
+    from app.data.pick_log import PickStore
+
+    status = body.get("status")
+    if status not in ("won", "lost", "push", "void", "open"):
+        return JSONResponse({"error": "status must be won/lost/push/void/open"}, status_code=400)
+    res = PickStore().update_status(pick_id, status)
+    if res is None:
+        return JSONResponse({"error": "Pick not found"}, status_code=404)
+    return res
+
+
+@app.post("/api/picks/{pick_id}/promote")
+def promote_pick(pick_id: str, body: dict = Body(...)):
+    """Copy a Claude pick into the real Bets log at a chosen stake.
+
+    Body: {"stake": 10, "book": "bet365"}  (both optional)
+    """
+    from app.data.bet_log import BetLeg, BetStore, make_bet
+    from app.data.pick_log import PickStore
+
+    picks = PickStore()
+    pick = picks.get(pick_id)
+    if pick is None:
+        return JSONResponse({"error": "Pick not found"}, status_code=404)
+    if pick.get("promoted_to_bet_id"):
+        return JSONResponse({"error": "Already promoted", "bet_id": pick["promoted_to_bet_id"]}, status_code=409)
+
+    stake = float(body.get("stake", 10))
+    book = body.get("book", "bet365")
+    legs = [BetLeg(
+        description=l.get("description", ""),
+        player=l.get("player", ""),
+        stat=l.get("stat", ""),
+        side=l.get("side", ""),
+        line=l.get("line"),
+        status="open",
+    ) for l in pick.get("legs", [])]
+
+    bet = make_bet(
+        sport=pick.get("sport", "other"),
+        book=book,
+        stake=stake,
+        american_odds=pick.get("american_odds"),
+        legs=legs,
+        source="claude_promoted",
+        note=f"From pick {pick_id}",
+    )
+    stored = BetStore().add(bet)
+    picks.set_promoted(pick_id, stored["id"])
+    return {"pick_id": pick_id, "bet": stored}
+
+
+@app.delete("/api/picks/{pick_id}")
+def delete_pick(pick_id: str):
+    from app.data.pick_log import PickStore
+    ok = PickStore().delete(pick_id)
+    if not ok:
+        return JSONResponse({"error": "Pick not found"}, status_code=404)
+    return {"deleted": pick_id}
+
+
 # ---------- ChatGPT-friendly endpoints ----------
 
 @app.get("/api/top-picks")
