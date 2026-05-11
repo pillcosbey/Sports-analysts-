@@ -25,7 +25,8 @@ from typing import Iterable
 
 from app.core.simulator import Projection
 from app.data.live_boxscore import NBABoxGame, NBABoxPlayer
-from app.data.nba_stats import NBA_PLAYERS, COMBO_STATS
+from app.data.nba_stats import COMBO_STATS
+from app.data.season_sync import get_player_stats
 
 
 # Stats we project for halftime
@@ -42,9 +43,12 @@ NBA_HALFTIME_STATS = (
 )
 
 # Blend weights for the 2nd-half mean.
-# Heavier on actual-rate-so-far since the user is reacting to a real game.
-W_RATE = 0.55
-W_SEASON = 0.30
+# Tuned 2026-05-11 after the DET/CLE retrospective: the original
+# (0.55/0.30/0.15) over-weighted the 1H rate and missed every halftime
+# split we checked (Cade G1, Cade G3, Mitchell G3 — all regressions
+# toward the season mean). Shifted weight from rate → season + pace.
+W_RATE = 0.40
+W_SEASON = 0.45
 W_PACE = 0.15
 
 # Dist per stat — matches the pregame projection assumptions.
@@ -105,8 +109,12 @@ def _stat_value(p: NBABoxPlayer, stat: str) -> int:
 
 
 def _season_half_mean(player_name: str, stat: str) -> tuple[float, float] | None:
-    """Return (half_mean, half_sd) for the player, or None if not in db."""
-    p = NBA_PLAYERS.get(player_name)
+    """Return (half_mean, half_sd) for the player, or None if not in db.
+
+    Prefers the synced season_averages.json (refreshed nightly by
+    season_sync.sync_season_averages) over the hardcoded NBA_PLAYERS dict.
+    """
+    p = get_player_stats(player_name)
     if not p:
         return None
     if stat in COMBO_STATS:

@@ -754,6 +754,42 @@ def privacy_policy():
     })
 
 
+# ---------- Backtest + admin ----------
+
+@app.get("/api/backtest/nba/{game_id}")
+def backtest_nba_game(game_id: str):
+    """Replay the halftime model against a finished NBA game.
+
+    Pulls ESPN's full summary (boxscore + play-by-play), reconstructs the
+    per-player halftime box, runs the projection, then compares each
+    projected 2H value to the player's actual 2H result.
+
+    Useful for: (a) judging the model honestly, (b) tuning weights,
+    (c) sanity-checking a tonight's pick before posting it.
+    """
+    from app.sports.backtest_game import backtest_game
+
+    report = backtest_game(game_id)
+    if report is None:
+        return JSONResponse(
+            {"error": "Could not backtest — game not final, or ESPN play-by-play unavailable"},
+            status_code=502,
+        )
+    return report.to_dict()
+
+
+@app.post("/api/admin/sync-season-averages")
+def sync_season_averages_endpoint(body: dict = Body(default={})):
+    """Pull current-season averages from balldontlie into season_averages.json.
+
+    Body (optional): {"season": 2025}
+    """
+    from app.data.season_sync import sync_season_averages
+
+    season = body.get("season")
+    return sync_season_averages(season=int(season) if season else None)
+
+
 # ---------- Status ----------
 
 @app.get("/api/health")
