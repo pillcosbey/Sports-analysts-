@@ -464,6 +464,9 @@ def add_pick(body: dict = Body(...)):
             rationale=body.get("rationale", ""),
             confidence=body.get("confidence", "medium"),
             game_id=body.get("game_id", ""),
+            game_date=body.get("game_date", ""),
+            home_team=body.get("home_team", ""),
+            away_team=body.get("away_team", ""),
             source=body.get("source", "claude"),
         )
     except (KeyError, ValueError, TypeError) as e:
@@ -551,8 +554,13 @@ def auto_grade_pick(pick_id: str):
     pick = store.get(pick_id)
     if pick is None:
         return JSONResponse({"error": "Pick not found"}, status_code=404)
-    if not pick.get("game_id"):
-        return JSONResponse({"error": "Pick has no game_id — cannot auto-grade"}, status_code=400)
+    has_espn = bool(pick.get("game_id"))
+    has_fallback = all(pick.get(k) for k in ("game_date", "home_team", "away_team"))
+    if not has_espn and not has_fallback:
+        return JSONResponse(
+            {"error": "Pick has no game_id or (game_date, home_team, away_team) — cannot auto-grade"},
+            status_code=400,
+        )
 
     grade = fetch_and_grade(pick)
     if grade is None:
@@ -594,7 +602,11 @@ def grade_pending_picks():
     store = PickStore()
     results = []
     for pick in store.all():
-        if pick.get("status") != "open" or not pick.get("game_id"):
+        if pick.get("status") != "open":
+            continue
+        has_espn = bool(pick.get("game_id"))
+        has_fallback = all(pick.get(k) for k in ("game_date", "home_team", "away_team"))
+        if not has_espn and not has_fallback:
             continue
         grade = fetch_and_grade(pick)
         if grade is None or not grade.game_final:
@@ -754,6 +766,7 @@ def status():
     return {
         "halftime_provider": "espn",
         "vision_enabled": bool(os.environ.get("ANTHROPIC_API_KEY", "").strip()),
+        "balldontlie_enabled": bool(os.environ.get("BALLDONTLIE_API_KEY", "").strip()),
     }
 
 

@@ -15,7 +15,8 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
-from app.data.live_boxscore import NBABoxGame, NBABoxPlayer, fetch_nba_boxscore
+from app.data.box_score import fetch_final_box
+from app.data.live_boxscore import NBABoxGame, NBABoxPlayer
 
 log = logging.getLogger(__name__)
 
@@ -172,11 +173,17 @@ def grade_pick(pick: dict, box: NBABoxGame) -> PickGrade:
 
 
 def fetch_and_grade(pick: dict) -> PickGrade | None:
-    """One-shot: fetch the box, grade. Returns None if the box can't be fetched."""
-    game_id = pick.get("game_id") or ""
-    if not game_id:
-        return None
-    box = fetch_nba_boxscore(game_id)
+    """One-shot: fetch the box (from any available source), grade.
+
+    Uses `game_id` first (ESPN), falls back to (`game_date`, `home_team`,
+    `away_team`) via balldontlie. Returns None only if every source fails.
+    """
+    box = fetch_final_box(
+        espn_game_id=pick.get("game_id") or None,
+        game_date=pick.get("game_date") or None,
+        home_team=pick.get("home_team") or None,
+        away_team=pick.get("away_team") or None,
+    )
     if box is None:
         return None
     return grade_pick(pick, box)
