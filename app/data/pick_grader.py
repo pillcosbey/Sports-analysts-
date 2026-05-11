@@ -48,8 +48,14 @@ def _normalize_name(name: str) -> str:
     return re.sub(r"[^a-z]", "", (name or "").lower())
 
 
-def _find_player(box: NBABoxGame, name: str) -> NBABoxPlayer | None:
-    """Match by full name first, then by last name, then by initial+last."""
+def _find_player(box: NBABoxGame, name: str, team_hint: str = "") -> NBABoxPlayer | None:
+    """Match by full name → last name → initial+last. Falls back to the
+    balldontlie resolver (if BALLDONTLIE_API_KEY is set) when local
+    matching is ambiguous.
+
+    `team_hint` (e.g. "SAS") narrows the resolver when the same last name
+    exists on multiple teams.
+    """
     n = _normalize_name(name)
     if not n:
         return None
@@ -74,6 +80,19 @@ def _find_player(box: NBABoxGame, name: str) -> NBABoxPlayer | None:
         ]
         if len(narrowed) == 1:
             return narrowed[0]
+
+    # Fall back to balldontlie disambiguation
+    try:
+        from app.data.player_resolver import resolve_player
+    except ImportError:
+        return None
+    resolved = resolve_player(name, team_hint)
+    if resolved is None:
+        return None
+    rn = _normalize_name(resolved["display_name"])
+    for p in box.players:
+        if _normalize_name(p.player) == rn:
+            return p
     return None
 
 
@@ -112,7 +131,8 @@ def grade_leg(leg: dict, box: NBABoxGame) -> LegOutcome:
             note="Leg is missing structured fields (player/stat/side/line)",
         )
 
-    found = _find_player(box, player)
+    team_hint = (leg.get("team") or "").upper()
+    found = _find_player(box, player, team_hint=team_hint)
     if found is None:
         return LegOutcome(
             description=desc, player=player, stat=stat, side=side,
