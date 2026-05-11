@@ -41,10 +41,12 @@ function prettyStat(s) {
 /* ===== Panel switching ===== */
 function showPanel(name) {
   document.getElementById("halftime-panel").classList.toggle("hidden", name !== "halftime");
+  document.getElementById("picks-panel").classList.toggle("hidden", name !== "picks");
   document.getElementById("bets-panel").classList.toggle("hidden", name !== "bets");
   document.querySelectorAll("#main-nav button").forEach(b =>
     b.classList.toggle("active", b.dataset.tab === name));
   if (name === "halftime") loadGames();
+  if (name === "picks") loadPicks();
   if (name === "bets") loadBets();
 }
 
@@ -54,6 +56,8 @@ document.querySelectorAll("#main-nav button").forEach(b =>
 document.getElementById("refresh-btn").addEventListener("click", () => {
   if (!document.getElementById("halftime-panel").classList.contains("hidden")) {
     if (currentGameId) loadGameDetail(currentGameId); else loadGames();
+  } else if (!document.getElementById("picks-panel").classList.contains("hidden")) {
+    loadPicks();
   } else {
     loadBets();
   }
@@ -359,6 +363,122 @@ function renderMlbDetail(d) {
         </div>`).join("") : '<div class="empty-state">No pitcher data yet</div>'}
     </div>
   `;
+}
+
+/* ===== Picks (Claude's track record) ===== */
+async function loadPicks() {
+  const list = document.getElementById("picks-list");
+  list.innerHTML = `<div class="loading"><div class="spinner"></div><span class="loading-text">Loading picks...</span></div>`;
+  try {
+    const r = await fetch("/api/picks");
+    const d = await r.json();
+    renderPickSummary(d.stats);
+    renderPickList(d.picks);
+  } catch (e) {
+    list.innerHTML = `<div class="empty-state">Failed to load picks</div>`;
+  }
+}
+
+function renderPickSummary(s) {
+  const roiColor = s.pnl >= 0 ? "var(--green)" : "var(--red)";
+  const calColor = Math.abs(s.calibration_gap) < 0.05 ? "var(--green)" : Math.abs(s.calibration_gap) < 0.15 ? "var(--yellow)" : "var(--red)";
+  document.getElementById("picks-summary").innerHTML = `
+    <div class="bt-summary">
+      <div class="bt-stat"><div class="val">${s.total_picks}</div><div class="lbl">Picks</div></div>
+      <div class="bt-stat"><div class="val">${s.wins}-${s.losses}${s.pushes ? `-${s.pushes}` : ''}</div><div class="lbl">Record</div></div>
+      <div class="bt-stat"><div class="val">${(s.win_rate*100).toFixed(1)}%</div><div class="lbl">Hit Rate</div></div>
+      <div class="bt-stat"><div class="val" style="color:${roiColor}">${s.pnl >= 0 ? '+' : ''}$${s.pnl.toFixed(2)}</div><div class="lbl">P/L ($1 flat)</div></div>
+      <div class="bt-stat"><div class="val" style="color:${roiColor}">${s.roi_pct >= 0 ? '+' : ''}${s.roi_pct.toFixed(1)}%</div><div class="lbl">ROI</div></div>
+      <div class="bt-stat"><div class="val" style="color:${calColor}">${s.calibration_gap >= 0 ? '+' : ''}${(s.calibration_gap*100).toFixed(1)}%</div><div class="lbl">Calibration</div></div>
+    </div>`;
+}
+
+function renderPickList(picks) {
+  const list = document.getElementById("picks-list");
+  if (!picks.length) {
+    list.innerHTML = `<div class="empty-state">No picks yet. Ask Claude for a parlay and I'll log it here automatically.</div>`;
+    return;
+  }
+  picks.sort((a, b) => b.suggested_at - a.suggested_at);
+  list.innerHTML = picks.map(p => {
+    const odds = p.american_odds ? (p.american_odds > 0 ? `+${p.american_odds}` : `${p.american_odds}`) : "—";
+    const statusClass = p.status === "won" ? "won" : p.status === "lost" ? "lost" : p.status === "push" ? "push" : "open";
+    const modelProb = p.model_prob != null ? `${(p.model_prob*100).toFixed(1)}% model` : "";
+    const ev = p.ev_per_dollar != null ? `${p.ev_per_dollar >= 0 ? '+' : ''}$${p.ev_per_dollar.toFixed(2)} EV` : "";
+    const confTag = p.confidence ? `<span class="conf-tag conf-${p.confidence}">${p.confidence.toUpperCase()}</span>` : "";
+    const settleBtns = p.status === "open" ? `
+      <button class="btn btn-sm" onclick="settlePick('${p.id}','won')">Won</button>
+      <button class="btn btn-sm btn-danger" onclick="settlePick('${p.id}','lost')">Lost</button>
+      <button class="btn btn-sm btn-outline" onclick="settlePick('${p.id}','push')">Push</button>
+    ` : `
+      <button class="btn btn-sm btn-outline" onclick="settlePick('${p.id}','open')">Reopen</button>
+    `;
+    const promoteBtn = p.promoted_to_bet_id
+      ? `<span class="promoted-tag">Promoted ✓</span>`
+      : `<button class="btn btn-sm btn-primary" onclick="promotePick('${p.id}')">Place this</button>`;
+    return `
+      <div class="bet-card status-${statusClass}">
+        <div class="bet-head">
+          ${confTag}
+          <span class="bet-odds">${odds}</span>
+          <span class="bet-sport">${(p.sport || '').toUpperCase()}</span>
+          <span class="pick-prob">${modelProb}</span>
+          <span class="pick-ev">${ev}</span>
+          <span class="bet-status">${p.status.toUpperCase()}</span>
+        </div>
+        ${p.rationale ? `<div class="pick-rationale">${p.rationale}</div>` : ""}
+        <div class="bet-legs">
+          ${p.legs.map(l => {
+            const lp = l.model_prob != null ? ` <span class="pick-leg-prob">${(l.model_prob*100).toFixed(0)}%</span>` : "";
+            return `<div class="bet-leg-row"><span class="bet-leg-status ${l.status}">●</span>${l.description || `${l.player} ${l.side} ${l.line} ${l.stat}`}${lp}</div>`;
+          }).join("")}
+        </div>
+        <div class="bet-actions">
+          ${settleBtns}
+          ${promoteBtn}
+          <button class="btn btn-sm btn-danger" onclick="deletePick('${p.id}')">Delete</button>
+        </div>
+      </div>`;
+  }).join("");
+}
+
+async function settlePick(id, status) {
+  try {
+    const r = await fetch(`/api/picks/${id}/settle`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status }),
+    });
+    const d = await r.json();
+    if (d.error) toast(d.error, "error");
+    else toast(`Pick ${status}`, "success");
+    loadPicks();
+  } catch (e) { toast("Settle failed", "error"); }
+}
+
+async function promotePick(id) {
+  const stakeStr = prompt("Stake $ for this bet?", "10");
+  if (stakeStr === null) return;
+  const stake = parseFloat(stakeStr);
+  if (!stake || stake <= 0) { toast("Invalid stake", "error"); return; }
+  try {
+    const r = await fetch(`/api/picks/${id}/promote`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ stake }),
+    });
+    const d = await r.json();
+    if (d.error) { toast(d.error, "error"); return; }
+    toast("Placed in My Bets", "success");
+    loadPicks();
+  } catch (e) { toast("Promote failed", "error"); }
+}
+
+async function deletePick(id) {
+  if (!confirm("Delete this pick?")) return;
+  try {
+    await fetch(`/api/picks/${id}`, { method: "DELETE" });
+    toast("Deleted");
+    loadPicks();
+  } catch (e) { toast("Delete failed", "error"); }
 }
 
 /* ===== Bets ===== */
