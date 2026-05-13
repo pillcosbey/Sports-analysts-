@@ -41,6 +41,8 @@ class BuilderSuggestion:
     combined_decimal_odds: float
     combined_american: int
     ev_per_dollar: float
+    correlation_score: float = 0.0   # avg pairwise correlation across same-game pairs
+    correlation_warning: str = ""    # set when legs are uncorrelated (parlay-risk)
 
 
 def _to_parlay_leg(c: CandidateLeg) -> ParlayLeg:
@@ -95,6 +97,16 @@ def suggest_builders(
             result = build_parlay([_to_parlay_leg(c) for c in combo])
             if result.ev_per_dollar < min_ev:
                 continue
+            # correlation_penalty is 1 - copula_adjustment; positive means
+            # legs hurt each other, negative means they help. Translate into
+            # a 0-1 "how much do these legs move together" score for the UI.
+            corr_score = max(0.0, -result.correlation_penalty + 0.0)
+            warning = ""
+            if size >= 3 and corr_score <= 0.02:
+                warning = (
+                    "Low same-game correlation: every leg must hit independently. "
+                    "Consider smaller stake or splitting into single bets."
+                )
             suggestions.append(BuilderSuggestion(
                 legs=list(combo),
                 naive_prob=result.naive_prob,
@@ -102,6 +114,8 @@ def suggest_builders(
                 combined_decimal_odds=result.combined_decimal_odds,
                 combined_american=decimal_to_american(result.combined_decimal_odds),
                 ev_per_dollar=result.ev_per_dollar,
+                correlation_score=round(corr_score, 4),
+                correlation_warning=warning,
             ))
 
     suggestions.sort(key=lambda s: s.ev_per_dollar, reverse=True)

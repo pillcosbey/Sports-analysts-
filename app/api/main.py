@@ -230,6 +230,8 @@ def suggest_builder(
                 "combined_decimal_odds": s.combined_decimal_odds,
                 "combined_american": s.combined_american,
                 "ev_per_dollar": s.ev_per_dollar,
+                "correlation_score": s.correlation_score,
+                "correlation_warning": s.correlation_warning,
                 "legs": [
                     {
                         "player": l.player,
@@ -591,6 +593,29 @@ def auto_grade_pick(pick_id: str):
         payload["committed"] = False
         payload["note"] = "Game not final yet — preview only, status unchanged"
     return payload
+
+
+@app.get("/api/picks/{pick_id}/live-status")
+def pick_live_status(pick_id: str):
+    """Mid-game progress report for a still-open pick.
+
+    Re-pulls the live ESPN boxscore and for each leg returns:
+    actual_now, projected_final, status (winning/losing/tight/won/lost),
+    and an overall cash-out signal.
+    """
+    from app.data.live_pick_status import live_status
+    from app.data.pick_log import PickStore
+
+    pick = PickStore().get(pick_id)
+    if pick is None:
+        return JSONResponse({"error": "Pick not found"}, status_code=404)
+    if not pick.get("game_id"):
+        return JSONResponse({"error": "Pick has no game_id"}, status_code=400)
+
+    status = live_status(pick)
+    if status is None:
+        return JSONResponse({"error": "Could not fetch live box score"}, status_code=502)
+    return status.to_dict()
 
 
 @app.post("/api/picks/grade-pending")

@@ -149,6 +149,17 @@ def project_nba_halftime(game: NBABoxGame) -> HalftimeGame:
     total = game.home_score + game.away_score
     pace_factor = max(0.80, min(1.25, total / 110.0))
 
+    # Blowout context — added 2026-05-13 after the SAS/MIN G5 retrospective:
+    # Fox OVER 20.5 lost 18 because SAS led 12+ at half and coasted in 2H,
+    # while Keldon Johnson (bench) went off for 21 in the same game.
+    # Solution: in lead-protect mode, starters' projections get a haircut
+    # and bench players get a bump.
+    lead = abs(game.home_score - game.away_score)
+    is_blowout_setup = lead >= 10 and pace_factor <= 1.05
+    leading_team = (
+        game.home_team if game.home_score > game.away_score else game.away_team
+    ) if is_blowout_setup else None
+
     legs: list[HalftimeLeg] = []
     for p in game.players:
         if p.minutes < 8.0:
@@ -181,6 +192,18 @@ def project_nba_halftime(game: NBABoxGame) -> HalftimeGame:
             # Heavy minutes already → mild taper
             if p.minutes >= 22:
                 second_half_mean *= 0.94
+
+            # Blowout adjustments — only for scoring/usage stats, not rebounds/blocks
+            # since defense + boards don't fade as much in lead-protect mode.
+            if is_blowout_setup and p.team == leading_team and stat in (
+                "points", "assists", "threes_made", "pra", "pr", "pa"
+            ):
+                if p.minutes >= 14:
+                    # Heavy 1H minutes = starter → coasts in 2H
+                    second_half_mean *= 0.85
+                elif p.minutes <= 10:
+                    # Light 1H minutes = bench → garbage-time burn
+                    second_half_mean *= 1.20
 
             second_half_mean = max(0.0, second_half_mean)
             second_half_sd = max(0.4, second_half_sd)
