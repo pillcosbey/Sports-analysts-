@@ -38,7 +38,8 @@ Extract structured data and respond with ONLY raw JSON, no markdown fences, no c
     {
       "description": "<full leg text exactly as shown>",
       "player": "<player name if a player prop>",
-      "stat": "<points|rebounds|assists|threes|pra|pr|pa|hits|total_bases|...>",
+      "stat": "<see stat-code rules below>",
+      "stat_category_raw": "<the exact category text shown on the screenshot, e.g. 'Points, Assists & Rebounds (Combined)'>",
       "side": "OVER" | "UNDER" | "",
       "line": <number or null>,
       "status": "open" | "won" | "lost" | "push" | "void"
@@ -46,13 +47,31 @@ Extract structured data and respond with ONLY raw JSON, no markdown fences, no c
   ]
 }
 
-Rules:
+CRITICAL — stat-code rules (this is where automated parsers fail most often):
+
+The combined-stat categories are very different from each other. Identify the
+EXACT category before picking a stat code. If the category is truncated and you
+cannot read the full text, set stat="" and stat_category_raw="UNCLEAR" so the
+leg can be reviewed manually.
+
+  - "Points"                                   → stat="points"
+  - "Rebounds"                                 → stat="rebounds"
+  - "Assists"                                  → stat="assists"
+  - "Threes Made" / "3-Pointers Made"          → stat="threes_made"
+  - "Points, Assists & Rebounds (Combined)"    → stat="pra"
+  - "Points + Rebounds + Assists"              → stat="pra"
+  - "Points & Rebounds"                        → stat="pr"
+  - "Points & Assists"  (no rebounds!)         → stat="pa"
+  - "Rebounds & Assists"                       → stat="ra"
+  - MLB "Hits"                                 → stat="hits"
+  - MLB "Total Bases"                          → stat="total_bases"
+  - MLB "Strikeouts"                           → stat="strikeouts"
+
+Other rules:
 - Use the displayed odds (e.g. +650). Convert to integer.
 - If status is "won" use the Returned amount; if "lost" or no return shown, returned=0.
-- Combined stat lines like "Points, Assists & Rebounds (Combined)" → stat="pra".
-- "Points & Rebounds" → "pr"; "Points & Assists" → "pa"; "Rebounds & Assists" → "ra".
 - If a leg's individual status is shown by a green check it is "won"; red X → "lost"; gray → "open".
-- If you cannot read the screenshot, return {"book":"other","sport":"other","stake":0,"american_odds":0,"returned":0,"status":"open","legs":[]}.
+- If you cannot read the screenshot at all, return {"book":"other","sport":"other","stake":0,"american_odds":0,"returned":0,"status":"open","legs":[]}.
 """
 
 

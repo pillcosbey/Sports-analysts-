@@ -46,10 +46,12 @@ def _draw(proj: Projection, trials: int, rng: np.random.Generator) -> np.ndarray
     if proj.dist == "poisson":
         samples = rng.poisson(lam=max(m, 1e-6), size=trials).astype(float)
     elif proj.dist == "negbin":
-        # Parameterize NegBin by mean m and variance v = m + m^2/r
-        v = max(s * s, m * 1.01 + 1e-6)  # must exceed mean for NegBin
-        r = m * m / (v - m)
-        p = r / (r + m)
+        # Parameterize NegBin by mean m and variance v = m + m^2/r.
+        # m must be > 0 or `p = r/(r+m)` is undefined.
+        m_safe = max(m, 1e-3)
+        v = max(s * s, m_safe * 1.01 + 1e-6)  # must exceed mean for NegBin
+        r = m_safe * m_safe / (v - m_safe)
+        p = r / (r + m_safe)
         samples = rng.negative_binomial(n=max(r, 1e-6), p=p, size=trials).astype(float)
     elif proj.dist == "normal":
         samples = rng.normal(loc=m, scale=s, size=trials)
