@@ -205,6 +205,21 @@ def project_nba_halftime(game: NBABoxGame) -> HalftimeGame:
                     # Light 1H minutes = bench → garbage-time burn
                     second_half_mean *= 1.20
 
+            # Low-touches confidence dampener — added 2026-05-13 after the
+            # CLE/DET G5 retrospective: LeVert went 2-2 FG in 13 1H minutes
+            # for 7 pts, then 0-5 in 2H for 0 pts. His 1H "rate" was 2 made
+            # shots, not a stable signal. The mean projection was reasonable
+            # but the confidence was inflated. When 1H FGA/min is well below
+            # typical rotation usage (~0.5), widen the SD so a real edge is
+            # still flagged but the model doesn't over-rank these players.
+            fga_per_min = (p.fg_att / p.minutes) if p.minutes > 0 else 0.0
+            if (
+                p.minutes >= 10
+                and fga_per_min < 0.30
+                and stat in ("points", "threes_made", "pra", "pr", "pa")
+            ):
+                second_half_sd *= 1.4
+
             second_half_mean = max(0.0, second_half_mean)
             second_half_sd = max(0.4, second_half_sd)
 
