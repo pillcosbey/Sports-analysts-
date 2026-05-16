@@ -184,6 +184,42 @@ section p { margin-bottom: 1rem; }
 .price-list li:last-child { border-bottom: 0; }
 .price-list li span:last-child { font-weight: 700; color: var(--accent-dark); }
 
+/* ---------- Menu ---------- */
+.menu-title { font-size: clamp(1.7rem, 3vw, 2.4rem); margin-top: 46px; }
+.menu-hours { color: var(--ink-soft); font-size: .92rem; margin-bottom: 6px; }
+.menu-grid {
+  display: grid; grid-template-columns: repeat(2, 1fr);
+  gap: 24px; margin-top: 28px; align-items: start;
+}
+.menu-cat {
+  background: #fff; border: 1px solid var(--line);
+  border-radius: var(--radius); padding: 28px 28px;
+}
+.menu-cat-wide { grid-column: 1 / -1; }
+.menu-cat > h3 { font-size: 1.6rem; color: var(--accent-dark); margin-bottom: .3rem; }
+.menu-cat-premium { border-color: var(--sand); background: #fdfaf4; }
+.menu-cat-premium > h3 { color: #9a7d3e; }
+.menu-list-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0 40px; }
+.menu-intro { font-style: italic; color: var(--ink-soft); font-size: .88rem; margin-bottom: 6px; }
+.menu-subhead {
+  font-size: .74rem; font-weight: 700; letter-spacing: .12em;
+  text-transform: uppercase; color: var(--accent);
+  margin: 18px 0 4px;
+}
+.menu-item { padding: 9px 0; border-bottom: 1px solid var(--line); break-inside: avoid; }
+.menu-item:last-child { border-bottom: 0; }
+.menu-item-head { display: flex; align-items: baseline; gap: 8px; }
+.menu-name { font-weight: 600; font-size: .98rem; }
+.leader { flex: 1; border-bottom: 1.5px dotted var(--line); min-width: 14px; transform: translateY(-3px); }
+.menu-price { font-weight: 700; color: var(--accent-dark); white-space: nowrap; }
+.menu-desc { font-size: .85rem; color: var(--ink-soft); margin: 3px 0 0; }
+.menu-note {
+  font-size: .85rem; color: var(--ink-soft);
+  padding: 10px 0 2px; line-height: 1.5;
+}
+.menu-note strong { color: var(--accent-dark); }
+.menu-order-note { margin-top: 26px; font-weight: 600; }
+
 /* ---------- Things to know ---------- */
 .know-grid {
   display: grid; grid-template-columns: repeat(2, 1fr); gap: 24px; margin-top: 40px;
@@ -292,6 +328,8 @@ img.missing::after {
   .space-row, .space-row.reverse { grid-template-columns: 1fr; gap: 20px; }
   .space-row.reverse .space-photo { order: 0; }
   .amenity-grid, .service-grid { grid-template-columns: 1fr; }
+  .menu-grid { grid-template-columns: 1fr; }
+  .menu-list-2 { grid-template-columns: 1fr; gap: 0; }
   .gallery-grid { grid-template-columns: 1fr 1fr; }
   .dining-gallery { grid-template-columns: 1fr 1fr; }
   .know-grid { grid-template-columns: 1fr; }
