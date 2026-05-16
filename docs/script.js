@@ -106,14 +106,5 @@ form.addEventListener('submit', (e) => {
   if (checkin.value && checkout.value && checkout.value <= checkin.value) {
     e.preventDefault();
     showError('Your check-out date must be after your check-in date.');
-    return;
-  }
-
-  // If the form endpoint has not been configured yet, fall back gracefully.
-  if (form.action.includes('YOUR_FORM_ID')) {
-    e.preventDefault();
-    showError(
-      'The booking form is not connected yet. To finish setup, create a free form at formspree.io and replace YOUR_FORM_ID in index.html with your form endpoint.'
-    );
   }
 });

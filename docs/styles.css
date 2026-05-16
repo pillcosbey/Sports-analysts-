@@ -56,7 +56,7 @@ section p { margin-bottom: 1rem; }
 }
 .nav-inner { display: flex; align-items: center; justify-content: space-between; height: 72px; }
 .brand { display: flex; flex-direction: column; text-decoration: none; color: var(--ink); }
-.brand-mark { font-family: 'Cormorant Garamond', serif; font-size: 1.5rem; font-weight: 600; line-height: 1; }
+.brand-mark { font-family: 'Cormorant Garamond', serif; font-size: 1.25rem; font-weight: 600; line-height: 1.1; }
 .brand-sub { font-size: .68rem; letter-spacing: .14em; text-transform: uppercase; color: var(--ink-soft); }
 .nav-links { display: flex; align-items: center; gap: 28px; }
 .nav-links a { text-decoration: none; color: var(--ink); font-size: .92rem; font-weight: 500; }
@@ -274,6 +274,8 @@ fieldset.field { border: 0; }
   justify-content: space-between; gap: 20px;
 }
 .footer-sub { font-size: .8rem; color: rgba(255,255,255,.6); margin: 0; }
+.footer-sub a { color: inherit; text-decoration: underline; }
+.footer-sub a:hover { color: var(--sand); }
 .footer-nav { display: flex; gap: 22px; }
 .footer-nav a { color: rgba(255,255,255,.85); text-decoration: none; font-size: .9rem; }
 .footer-nav a:hover { color: var(--sand); }
