@@ -298,6 +298,7 @@ img.missing::after {
   background: rgba(15,15,17,.94);
   display: flex; align-items: center; justify-content: center;
 }
+.lightbox[hidden] { display: none; }
 .lightbox img { max-width: 90vw; max-height: 86vh; border-radius: 8px; }
 .lightbox-close {
   position: absolute; top: 22px; right: 28px;
