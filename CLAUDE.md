@@ -1,7 +1,7 @@
 # Claude handoff — Sports Analysts halftime parlay system
 
 This file is the durable memory between chat sessions. **Read this first on session start.**
-Last updated: 2026-05-20.
+Last updated: 2026-05-20 (PM — added nba_api source).
 
 ---
 
@@ -151,7 +151,8 @@ THESIS: one sentence on how the game has to play out for this to win
 - `app/core/parlay.py` — correlation-aware pricer (keep — copula model is good)
 - `app/data/live_boxscore.py` — ESPN live box fetcher (primary data source)
 - `app/data/balldontlie.py` — backup data source (needs `BALLDONTLIE_API_KEY`)
-- `app/data/box_score.py` — ESPN → balldontlie failover
+- `app/data/nba_api_source.py` — open-source NBA.com client (swar/nba_api). No key. Live box, season averages, static roster.
+- `app/data/box_score.py` — ESPN → balldontlie → nba_api failover
 - `app/data/play_by_play.py` — halftime reconstruction from ESPN PBP (for backtesting)
 - `app/data/season_sync.py` — nightly season-avg refresh
 - `app/data/pick_grader.py` — final box → leg grading
@@ -171,6 +172,8 @@ THESIS: one sentence on how the game has to play out for this to win
 - #9 — name resolver, season sync, auto-backtest, tuned weights
 - #10 — blowout cap, PRA/PA fix, live status, correlation warning
 - #11 — low-touches confidence dampener
+- #12 — CLAUDE.md handoff doc
+- #13 — nba_api as no-key fallback (closes pending item #4)
 
 ---
 
@@ -184,9 +187,11 @@ THESIS: one sentence on how the game has to play out for this to win
 3. **Refactor `/api/halftime` and `/api/builder` to use judgment rules instead of Monte Carlo.**
    Output per leg: `verdict ∈ {PLAY, LEAN, AVOID}` + `why: str`. Keep `parlay.py`'s
    correlation logic for the parlay-level layer.
-4. **Fallback database gap.** SAS young guys (Castle, Harper, Champagnie, Vassell, Shannon)
-   not in `NBA_PLAYERS`. Fix: set `BALLDONTLIE_API_KEY` on Railway, then
-   `POST /api/admin/sync-season-averages`. User hasn't done this yet.
+4. ~~Fallback database gap.~~ **DONE (2026-05-20):** nba_api source covers
+   every active player (Castle, Harper, Champagnie, Vassell, Shannon all
+   resolve from the embedded static roster). On next Railway deploy,
+   `POST /api/admin/sync-season-averages` will work with no env var set —
+   it falls back to nba_api when `BALLDONTLIE_API_KEY` is missing.
 
 ---
 
@@ -203,6 +208,8 @@ THESIS: one sentence on how the game has to play out for this to win
 - External egress from sandbox is blocked for: ESPN, NBA.com, balldontlie.io, data.nba.net.
   Only `raw.githubusercontent.com` and WebSearch work. User opens URLs on their phone and
   screenshots back when web data is needed.
+- `nba_api` calls hit stats.nba.com / cdn.nba.com — also blocked from sandbox.
+  The package works on Railway; can't be smoke-tested locally beyond static-roster lookups.
 - `gh` CLI is **not** available. Use `mcp__github__*` MCP tools instead.
 
 ---
