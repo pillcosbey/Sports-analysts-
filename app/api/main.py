@@ -805,7 +805,10 @@ def backtest_nba_game(game_id: str):
 
 @app.post("/api/admin/sync-season-averages")
 def sync_season_averages_endpoint(body: dict = Body(default={})):
-    """Pull current-season averages from balldontlie into season_averages.json.
+    """Pull current-season averages into season_averages.json.
+
+    Tries balldontlie first (if BALLDONTLIE_API_KEY is set), then falls
+    back to nba_api (no key required).
 
     Body (optional): {"season": 2025}
     """
@@ -824,10 +827,12 @@ def health():
 
 @app.get("/api/status")
 def status():
+    from app.data.nba_api_source import is_available as nba_api_available
     return {
         "halftime_provider": "espn",
         "vision_enabled": bool(os.environ.get("ANTHROPIC_API_KEY", "").strip()),
         "balldontlie_enabled": bool(os.environ.get("BALLDONTLIE_API_KEY", "").strip()),
+        "nba_api_enabled": nba_api_available(),
     }
 
 

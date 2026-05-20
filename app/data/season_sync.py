@@ -27,6 +27,8 @@ from typing import Any, Iterable
 
 import httpx
 
+from app.data.nba_api_source import fetch_season_averages as nba_api_season_averages
+from app.data.nba_api_source import is_available as nba_api_available
 from app.data.nba_stats import NBA_PLAYERS
 
 log = logging.getLogger(__name__)
@@ -103,19 +105,16 @@ def _fetch_averages(player_ids: list[int], season: int, client: httpx.Client, he
     return out
 
 
-def sync_season_averages(season: int | None = None) -> dict[str, Any]:
-    """Refresh data/season_averages.json. Returns a summary dict."""
+def _sync_via_balldontlie(season: int) -> dict[str, dict[str, Any]] | None:
+    """Pull averages via balldontlie (legacy path). Returns None if no key."""
     headers = _headers()
     if headers is None:
-        return {"error": "BALLDONTLIE_API_KEY not set", "synced": 0}
-
-    season = season or _current_season()
+        return None
     names = list(NBA_PLAYERS.keys())
-
     with httpx.Client(timeout=15.0) as client:
         name_to_id = _resolve_ids(names, client, headers)
         if not name_to_id:
-            return {"error": "No player ids could be resolved", "synced": 0}
+            return {}
         id_to_name = {v: k for k, v in name_to_id.items()}
         averages = _fetch_averages(list(name_to_id.values()), season, client, headers)
 
@@ -125,27 +124,88 @@ def sync_season_averages(season: int | None = None) -> dict[str, Any]:
         name = id_to_name.get(pid)
         if not name:
             continue
-        merged[name] = {
-            "team": NBA_PLAYERS.get(name, {}).get("team", ""),
-            "points":      (float(a.get("pts", 0) or 0),  _SD_DEFAULTS["points"]),
-            "rebounds":    (float(a.get("reb", 0) or 0),  _SD_DEFAULTS["rebounds"]),
-            "assists":     (float(a.get("ast", 0) or 0),  _SD_DEFAULTS["assists"]),
-            "threes_made": (float(a.get("fg3m", 0) or 0), _SD_DEFAULTS["threes_made"]),
-            "steals":      (float(a.get("stl", 0) or 0),  _SD_DEFAULTS["steals"]),
-            "blocks":      (float(a.get("blk", 0) or 0),  _SD_DEFAULTS["blocks"]),
-            "min":         float(a.get("min", 0) or 0) if isinstance(a.get("min"), (int, float)) else NBA_PLAYERS.get(name, {}).get("min", 30.0),
+        merged[name] = _make_entry(
+            name=name,
+            pts=a.get("pts"), reb=a.get("reb"), ast=a.get("ast"),
+            fg3m=a.get("fg3m"), stl=a.get("stl"), blk=a.get("blk"),
+            minutes=a.get("min"),
+        )
+    return merged
+
+
+def _sync_via_nba_api(season: int) -> dict[str, dict[str, Any]]:
+    """Pull averages via nba_api (no key required). Covers EVERY active
+    player in the league — not just the ones in NBA_PLAYERS — which closes
+    the SAS young-guys gap (Castle, Harper, Champagnie, Vassell, Shannon).
+    """
+    rows = nba_api_season_averages(season)
+    merged: dict[str, dict[str, Any]] = {}
+    for r in rows:
+        name = (r.get("player_name") or "").strip()
+        if not name:
+            continue
+        merged[name] = _make_entry(
+            name=name,
+            team_hint=r.get("team_abbr") or "",
+            pts=r.get("pts"), reb=r.get("reb"), ast=r.get("ast"),
+            fg3m=r.get("fg3m"), stl=r.get("stl"), blk=r.get("blk"),
+            minutes=r.get("min"),
+        )
+    return merged
+
+
+def _make_entry(
+    name: str,
+    *,
+    pts: Any, reb: Any, ast: Any, fg3m: Any, stl: Any, blk: Any, minutes: Any,
+    team_hint: str = "",
+) -> dict[str, Any]:
+    fallback = NBA_PLAYERS.get(name, {})
+    return {
+        "team":        team_hint or fallback.get("team", ""),
+        "points":      (float(pts or 0),  _SD_DEFAULTS["points"]),
+        "rebounds":    (float(reb or 0),  _SD_DEFAULTS["rebounds"]),
+        "assists":     (float(ast or 0),  _SD_DEFAULTS["assists"]),
+        "threes_made": (float(fg3m or 0), _SD_DEFAULTS["threes_made"]),
+        "steals":      (float(stl or 0),  _SD_DEFAULTS["steals"]),
+        "blocks":      (float(blk or 0),  _SD_DEFAULTS["blocks"]),
+        "min":         float(minutes) if isinstance(minutes, (int, float)) else fallback.get("min", 30.0),
+    }
+
+
+def sync_season_averages(season: int | None = None) -> dict[str, Any]:
+    """Refresh data/season_averages.json. Returns a summary dict.
+
+    Tries balldontlie first (if BALLDONTLIE_API_KEY is set), then falls
+    back to nba_api (no key required, broader coverage).
+    """
+    season = season or _current_season()
+
+    merged = _sync_via_balldontlie(season)
+    source = "balldontlie"
+    if not merged:
+        merged = _sync_via_nba_api(season)
+        source = "nba_api"
+
+    if not merged:
+        return {
+            "error": "Both balldontlie and nba_api failed",
+            "season": season,
+            "synced": 0,
+            "nba_api_available": nba_api_available(),
         }
 
     STORE.parent.mkdir(parents=True, exist_ok=True)
     STORE.write_text(json.dumps({
         "season": season,
         "synced_at": time.time(),
+        "source": source,
         "players": merged,
     }, indent=2))
 
     return {
         "season": season,
-        "resolved": len(name_to_id),
+        "source": source,
         "synced": len(merged),
         "store": str(STORE),
     }

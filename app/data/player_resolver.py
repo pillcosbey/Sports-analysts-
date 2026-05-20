@@ -21,6 +21,8 @@ from typing import Any
 
 import httpx
 
+from app.data.nba_api_source import resolve_player_static
+
 log = logging.getLogger(__name__)
 
 BASE = "https://api.balldontlie.io/v1"
@@ -93,13 +95,14 @@ def resolve_player(name: str, team_abbr: str = "") -> dict[str, Any] | None:
        "team_abbreviation": "SAS", "display_name": "Keldon Johnson"}
     or None on miss / no key / network failure.
     """
-    headers = _headers()
-    if headers is None:
-        return None
-
     term = _search_term(name)
     if not term:
         return None
+
+    headers = _headers()
+    if headers is None:
+        # No balldontlie key — fall straight to the nba_api static roster.
+        return resolve_player_static(_expand_nickname(name), team_abbr)
 
     try:
         with httpx.Client(timeout=8.0) as client:
@@ -112,11 +115,11 @@ def resolve_player(name: str, team_abbr: str = "") -> dict[str, Any] | None:
             data = r.json()
     except httpx.HTTPError as e:
         log.warning("balldontlie player search failed (%s): %s", term, e)
-        return None
+        return resolve_player_static(_expand_nickname(name), team_abbr)
 
     results = data.get("data", []) or []
     if not results:
-        return None
+        return resolve_player_static(_expand_nickname(name), team_abbr)
 
     team_u = team_abbr.upper().strip()
 
