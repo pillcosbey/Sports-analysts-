@@ -1,7 +1,7 @@
 # Claude handoff — Sports Analysts halftime parlay system
 
 This file is the durable memory between chat sessions. **Read this first on session start.**
-Last updated: 2026-05-20 (PM — added nba_api source).
+Last updated: 2026-05-20 (PM — added nba_api source; Rule 9 dead-game caveat).
 
 ---
 
@@ -94,10 +94,22 @@ bet365 truncates labels. **Always confirm the full stat category before pricing.
 > it as PA. It was PRA (Points + Rebounds + Assists). Cost ~9 of model edge. **Rule:**
 > if the stat label is truncated, ask the user to confirm before locking the leg.
 
-### 9. Fade UNDERS on cold high-volume shooters
+### 9. Fade UNDERS on cold high-volume shooters — *only when the game is still live*
 
 A 2-for-9 line at half is a positive regression candidate, not a continued slump.
 Cold + volume = bounce-back. Cold + no volume = nothing.
+
+> **Retrospective (SAS/MIN G6 + CLE/DET G7, 2026-05-15 / 2026-05-17):** Anthony
+> Edwards (9-26 FG) and Cade Cunningham (5-16 FG, 0-7 3PT) were both
+> cold + high-volume, both in 30+ pt elimination losses. **Neither bounced.**
+> When their team got run off the floor, the offense stopped feeding them, the
+> minutes got cut (Rule 4), and the cold line stayed cold through garbage time.
+>
+> **Caveat:** cold + volume only bounces when the game is still competitive at
+> half. If the player's team is **down 15+ at half** *or* a starter-haircut
+> blowout script is already likely (Rule 4 triggered), treat the cold line as
+> a **continuation**, not a bounce — lean UNDER, not OVER. Rules 4 and 9
+> agree in this spot, and that agreement is itself a strong PLAY signal.
 
 ### 10. One weak leg kills a parlay
 
