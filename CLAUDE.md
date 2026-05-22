@@ -1,7 +1,7 @@
 # Claude handoff — Sports Analysts halftime parlay system
 
 This file is the durable memory between chat sessions. **Read this first on session start.**
-Last updated: 2026-05-20 (PM — added nba_api source; Rule 9 dead-game caveat).
+Last updated: 2026-05-22 (CLE/NYK conf-finals halftime parlays placed, pending grade).
 
 ---
 
@@ -150,7 +150,9 @@ THESIS: one sentence on how the game has to play out for this to win
 | 2026-05-14 | CLE/DET G5 | LeVert O 10.5 PTS | **LOST** | low-touches dampener added |
 | 2026-05-17 | CLE/DET G6 | Tobias U / Duren O / Allen O PRA ($20 → $145) | **WON** at +625 | playbook works |
 | 2026-05-18 | SAS/MIN G6 | 4-parlay showdown (System vs Claude, $40 total) | **UNGRADED** | need final box |
-| 2026-05-20 | CLE/DET G7 | not yet placed | pending | request-too-large mid-upload |
+| 2026-05-20 | CLE/DET G7 | no parlay placed (request-too-large mid-upload) | — | CLE won series, advanced to face NYK |
+| 2026-05-22 | CLE/NYK | A: Mobley O21.5 pts / Allen O9.5 reb / Brunson O8.5 ast ($10, +583) | **PENDING** | need final box |
+| 2026-05-22 | CLE/NYK | B: Brunson O16.5 pts / Harden O4.5 ast / Hart O4.5 reb ($10, +722) | **PENDING** | need final box |
 
 ---
 
@@ -193,9 +195,13 @@ THESIS: one sentence on how the game has to play out for this to win
 
 1. **Settle SAS/MIN G6 4-parlay showdown** — System #1, System #2, Claude #1, Claude #2.
    User never sent the final box. Ask for it on next contact.
-2. **CLE/DET Game 7 halftime parlays** — user hit "request too large" mid-upload on
-   2026-05-20. Last state I had: CLE 38–DET 26 at ~Q2 7:59, pace tracking ~192 game total
-   (under 205.5). Ask for a fresh, smaller batch (one box per team + 2-3 bet365 categories).
+2. **Grade the CLE/NYK parlays placed 2026-05-22.** Halftime was CLE 49, NYK 53.
+   - Parlay A ($10, +583): Mobley O21.5 pts / Allen O9.5 reb / Brunson O8.5 ast.
+   - Parlay B ($10, +722): Brunson O16.5 pts / Harden O4.5 ast / Hart O4.5 reb.
+   Ask the user for the final box, grade leg-by-leg, log the lesson.
+   Roster note: this CLE team has **James Harden #1** and **Dean Wade #32** — both
+   confirmed on the bet365 board, don't re-flag them. CLE/DET G7 is closed (CLE won
+   the series and now faces NYK); no G7 parlay was ever placed.
 3. **Refactor `/api/halftime` and `/api/builder` to use judgment rules instead of Monte Carlo.**
    Output per leg: `verdict ∈ {PLAY, LEAN, AVOID}` + `why: str`. Keep `parlay.py`'s
    correlation logic for the parlay-level layer.
