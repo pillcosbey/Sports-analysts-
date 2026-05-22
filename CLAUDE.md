@@ -1,7 +1,7 @@
 # Claude handoff — Sports Analysts halftime parlay system
 
 This file is the durable memory between chat sessions. **Read this first on session start.**
-Last updated: 2026-05-22 (CLE/NYK conf-finals halftime parlays placed, pending grade).
+Last updated: 2026-05-22 (CLE/NYK conf-finals parlays graded — both LOST. New rules added.).
 
 ---
 
@@ -68,6 +68,14 @@ starters get hooked in 2H, bench eats minutes.
 > mode, starters → 0.85× projection on points/assists/threes/combos; bench (≤10 1H min) →
 > 1.20× projection on same.
 
+> **Retrospective (CLE/NYK G2, 2026-05-22, Mobley OVER 21.5 pts):** NYK pulled away to win
+> by 16; CLE got run off the floor in 2H. Mobley played 37 min but only 8 FGA — the offense
+> funneled to Mitchell (18 FGA) and Harden (15 FGA). Mobley finished with 14 pts. **Rule
+> extension (losing-side blowout):** on the *losing* side of a blowout script, the alpha
+> scorer's usage spikes (hero-ball) while the #3 starter's usage collapses. Apply
+> 0.80× projection to the #3 starter's scoring/PRA OVERs on the losing side; *bet* the
+> alpha's scoring OVER instead.
+
 ### 5. Foul trouble = real cut
 
 4+ PF at half → 0.78× projection. Don't hedge, just cut.
@@ -116,6 +124,27 @@ Cold + volume = bounce-back. Cold + no volume = nothing.
 Don't build 4-leggers from 4 mediocre edges. Two strong legs > four soft ones.
 **Default: 2 parlays, 3 legs each, $10 each.** Scale legs/stake to confidence.
 
+### 11. Fade assist OVERs for former lead PGs now in a scoring role
+
+If a player's season-trend 3PA ≥ 5/game OR their 1H FGA ≥ their 1H AST × 3, treat them
+as a scorer, not a facilitator. Fade their assist OVER unless the line is sub-3.5.
+
+> **Retrospective (CLE/NYK G2, 2026-05-22, Harden OVER 4.5 ast):** Harden in CLE has
+> been a scorer-first guard. He went 32 min / 15 FGA / 7 3PA / **2 ast**. The line was
+> priced off his career-PG résumé, not his current usage. **Rule:** the assist line
+> follows current usage, not name recognition.
+
+### 12. Rebound OVERs for wings die against hot-shooting opponents
+
+Wings (≤ 4 reb/game season avg, perimeter role) clean up team misses. When the
+opponent shoots ≥ 50% FG / ≥ 35% 3PT, there are fewer misses to grab. Avoid wing
+rebound OVERs when the opposing team is favored on a high-FG% script.
+
+> **Retrospective (CLE/NYK G2, 2026-05-22, Hart OVER 4.5 reb):** NYK shot 52% FG /
+> 36% 3PT — they barely missed. Hart played 33 min and finished with **4 reb**. The
+> rebound pool simply didn't exist. **Rule:** pair wing rebound OVERs with games
+> projected to be ugly shooting nights (defense-heavy matchups, cold-shooter slates).
+
 ---
 
 ## Output format for each leg (used in chat AND when the app is refactored)
@@ -149,10 +178,10 @@ THESIS: one sentence on how the game has to play out for this to win
 | 2026-05-12 | SAS/MIN G5 | Dosunmu U PRA / Reid U PRA / Fox O ($10) | **LOST** | PRA/PA fix + blowout cap |
 | 2026-05-14 | CLE/DET G5 | LeVert O 10.5 PTS | **LOST** | low-touches dampener added |
 | 2026-05-17 | CLE/DET G6 | Tobias U / Duren O / Allen O PRA ($20 → $145) | **WON** at +625 | playbook works |
-| 2026-05-18 | SAS/MIN G6 | 4-parlay showdown (System vs Claude, $40 total) | **UNGRADED** | need final box |
+| 2026-05-18 | SAS/MIN G6 | 4-parlay showdown (System vs Claude, $40 total) | **WRITTEN OFF** | user closed the book on it 2026-05-22 |
 | 2026-05-20 | CLE/DET G7 | no parlay placed (request-too-large mid-upload) | — | CLE won series, advanced to face NYK |
-| 2026-05-22 | CLE/NYK | A: Mobley O21.5 pts / Allen O9.5 reb / Brunson O8.5 ast ($10, +583) | **PENDING** | need final box |
-| 2026-05-22 | CLE/NYK | B: Brunson O16.5 pts / Harden O4.5 ast / Hart O4.5 reb ($10, +722) | **PENDING** | need final box |
+| 2026-05-22 | CLE/NYK G2 | A: Mobley O21.5 pts / Allen O9.5 reb / Brunson O8.5 ast ($10, +583) | **LOST** | Mobley 14 pts on 8 FGA — losing-side alpha funnel (Rule 4 ext) |
+| 2026-05-22 | CLE/NYK G2 | B: Brunson O16.5 pts / Harden O4.5 ast / Hart O4.5 reb ($10, +722) | **LOST** | Harden 2 ast (Rule 11), Hart 4 reb vs 52% NYK FG (Rule 12) |
 
 ---
 
@@ -193,18 +222,17 @@ THESIS: one sentence on how the game has to play out for this to win
 
 ## Pending items (carry into next session)
 
-1. **Settle SAS/MIN G6 4-parlay showdown** — System #1, System #2, Claude #1, Claude #2.
-   User never sent the final box. Ask for it on next contact.
-2. **Grade the CLE/NYK parlays placed 2026-05-22.** Halftime was CLE 49, NYK 53.
-   - Parlay A ($10, +583): Mobley O21.5 pts / Allen O9.5 reb / Brunson O8.5 ast.
-   - Parlay B ($10, +722): Brunson O16.5 pts / Harden O4.5 ast / Hart O4.5 reb.
-   Ask the user for the final box, grade leg-by-leg, log the lesson.
-   Roster note: this CLE team has **James Harden #1** and **Dean Wade #32** — both
-   confirmed on the bet365 board, don't re-flag them. CLE/DET G7 is closed (CLE won
-   the series and now faces NYK); no G7 parlay was ever placed.
-3. **Refactor `/api/halftime` and `/api/builder` to use judgment rules instead of Monte Carlo.**
+1. **Next CLE/NYK game halftime parlays.** Series is 0-1 CLE after G2 loss. Roster
+   note: this CLE team has **James Harden #1** and **Dean Wade #32** — both confirmed
+   on the bet365 board, don't re-flag them. Apply Rules 4-ext, 11, 12 from the G2
+   retro: if CLE trails at half, fade #3-starter scoring OVERs and bet the alpha;
+   fade Harden assist OVERs unless line is sub-3.5; avoid wing rebound OVERs against
+   a hot-shooting NYK side.
+2. **Refactor `/api/halftime` and `/api/builder` to use judgment rules instead of Monte Carlo.**
    Output per leg: `verdict ∈ {PLAY, LEAN, AVOID}` + `why: str`. Keep `parlay.py`'s
    correlation logic for the parlay-level layer.
+3. ~~Settle SAS/MIN G6 4-parlay showdown.~~ **WRITTEN OFF (2026-05-22):** user
+   closed the book on it; no final box was sent. Don't ask about it again.
 4. ~~Fallback database gap.~~ **DONE (2026-05-20):** nba_api source covers
    every active player (Castle, Harper, Champagnie, Vassell, Shannon all
    resolve from the embedded static roster). On next Railway deploy,
@@ -236,5 +264,5 @@ THESIS: one sentence on how the game has to play out for this to win
 
 1. Read this file end-to-end.
 2. Check `git log --oneline -20` to see what's shipped since this doc was written.
-3. Ask the user: "Where do we pick up — Game 7 halftime, settle G6, or season-sync gap?"
+3. Ask the user: "Where do we pick up — CLE/NYK G3 halftime, or the `/api/halftime` refactor?"
 4. Keep the lean workflow. Box + bet365 screenshots → 2 hand-built parlays. No JSON.
