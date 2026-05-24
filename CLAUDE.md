@@ -1,7 +1,12 @@
-# Claude handoff — Sports Analysts halftime parlay system
+# Claude handoff — Sports Analysts halftime parlay system (JUDGMENT chat)
 
-This file is the durable memory between chat sessions. **Read this first on session start.**
-Last updated: 2026-05-22 (CLE/NYK conf-finals parlays graded — both LOST. New rules added.).
+This file is the durable memory for the **judgment chat**. There is a sister
+chat that runs pure Monte Carlo on the same games (see `CLAUDE_MC.md`).
+The two chats run in parallel — judgment vs model — on the same halftime
+data, so the user can A/B their picks. **Read this first on session start.**
+
+Last updated: 2026-05-24 (dual-chat workflow added — judgment chat here,
+MC chat in `CLAUDE_MC.md`).
 
 ---
 
@@ -16,6 +21,12 @@ the user place real-money NBA playoff parlays at halftime. Workflow today:
 4. User sends the final box; we grade and log lessons.
 
 The live app exists for backup / record-keeping. The chat is the primary surface.
+
+**Dual-chat note:** The user may simultaneously be running the MC chat
+(`CLAUDE_MC.md`) on the same game. That chat outputs pure model picks
+(probabilities + EV, no judgment overlay) for comparison against this
+chat's judgment picks. When grading, both chats log to the "Recent
+results" table — MC rows are suffixed `(MC)`.
 
 ---
 
