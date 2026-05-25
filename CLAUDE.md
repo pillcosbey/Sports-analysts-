@@ -156,7 +156,9 @@ Cold + volume = bounce-back. Cold + no volume = nothing.
 ### 10. One weak leg kills a parlay
 
 Don't build 4-leggers from 4 mediocre edges. Two strong legs > four soft ones.
-**Default: 2 parlays, 3 legs each, $10 each.** Scale legs/stake to confidence.
+**Default: 2 parlays, 4 legs each, $10 each** (updated 2026-05-25 per user preference).
+Scale legs/stake to confidence. If you can't find 4 legs that all clear the
+"strong edge" bar in a given parlay, drop to 3 — don't pad with mediocre legs.
 
 ### 11. Fade assist OVERs for former lead PGs now in a scoring role
 
