@@ -46,6 +46,29 @@ The flow is:
 If a request hits "too large" again, ask for a smaller batch (1 box per team + 2-3 line
 categories max).
 
+### Halftime execution rule (added 2026-05-24 after SAS/OKC G4 missed window)
+
+The halftime window is ~10-12 minutes of real time. The previous session burned
+it asking for clarifying reads. Don't do that.
+
+**Rules:**
+
+1. **First halftime reply IS the final pick.** Two parlays, locked, in ≤60 sec
+   from receiving the screenshots. No "send me more data" round trips during
+   halftime — every clarification turn costs ~2 min of a 10 min window.
+2. **If a stat is unreadable, commit on direction alone.** "Wemby OVER pts,
+   take whatever line bet365 shows" is a valid pick. The user matches the
+   line on their end. Do NOT cite specific line numbers unless they're
+   clearly readable in the screenshot.
+3. **Pre-game prep is the budget for clarifications.** All "what's the line,
+   what's the role, who's hurt" questions get asked BEFORE tipoff so halftime
+   is pure execution. See CLAUDE_MC.md note about pre-game profile sheet.
+4. **User commits to medium-quality screenshots going forward** (2026-05-24).
+   Low-quality pictures forced direction-only picks in G4; medium quality
+   means lines and 1H stats become readable, so cite them.
+5. **No `AskUserQuestion` tool during halftime.** That's a pre-game tool only.
+   At halftime, output picks immediately.
+
 ---
 
 ## The Judgment Playbook (the rules that won the recent parlays)
