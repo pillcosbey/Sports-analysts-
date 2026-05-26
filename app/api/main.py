@@ -52,6 +52,9 @@ app.add_middleware(
 
 app.mount("/static", StaticFiles(directory=WEB_DIR), name="static")
 
+from app.api.screenshots import router as screenshots_router
+app.include_router(screenshots_router)
+
 
 @app.get("/")
 def index():
